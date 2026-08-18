@@ -83,7 +83,8 @@ function writeString(view: DataView, offset: number, string: string) {
 export async function transcribeVideoAudioWithAI(
   audioBuffer: AudioBuffer,
   wordsPerBlock: number = 3,
-  onStatusChange?: (status: string) => void
+  onStatusChange?: (status: string) => void,
+  language?: string
 ): Promise<SubtitleBlock[]> {
   try {
     if (onStatusChange) onStatusChange('Extracting audio track from video...');
@@ -99,6 +100,7 @@ export async function transcribeVideoAudioWithAI(
         audioBase64: wavBase64,
         mimeType: 'audio/wav',
         wordsPerBlock,
+        language: language || 'auto',
       }),
     });
 
@@ -145,7 +147,7 @@ export async function transcribeVideoAudioWithAI(
 
     throw new Error('No AI transcription blocks returned');
   } catch (error: any) {
-    console.warn('Gemini AI transcription fallback to offline audio analyzer:', error);
+    console.warn('Gemini AI transcription fallback to local audio analyzer:', error);
     if (onStatusChange) {
       const msg = error?.message?.includes('high demand') || error?.message?.includes('503')
         ? 'AI service busy — using built-in sentiment analyzer & audio sync...'

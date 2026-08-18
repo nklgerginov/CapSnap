@@ -19,10 +19,11 @@ import {
   Type,
   AtSign,
 } from 'lucide-react';
-import { AspectRatio, SubtitleBlock, SubtitleStyle, VideoFilter, PlatformPreset, VideoTransformSettings, WatermarkSettings } from '../types';
+import { AspectRatio, SubtitleBlock, SubtitleStyle, VideoFilter, PlatformPreset, VideoTransformSettings, WatermarkSettings, ProgressBarSettings, AudioSettings } from '../types';
 import { renderCanvasFrame, getTargetDimensions } from '../utils/canvasRenderer';
 import { SafeZoneOverlay } from './SafeZoneOverlay';
 import { detectSubjectFocalPoint } from '../utils/subjectDetector';
+import { playSfx, unlockAudioContext } from '../utils/sfxSynthesizer';
 
 type ResizeHandle = 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w' | null;
 
@@ -45,6 +46,8 @@ interface VideoPlayerCanvasProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   transform?: VideoTransformSettings;
   watermark?: WatermarkSettings;
+  progressBar?: ProgressBarSettings;
+  audioSettings?: AudioSettings;
   onTransformChange?: (updated: Partial<VideoTransformSettings>) => void;
   onChangeWatermark?: (updated: Partial<WatermarkSettings>) => void;
 }
@@ -68,6 +71,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
   videoRef,
   transform,
   watermark,
+  progressBar,
+  audioSettings,
   onTransformChange,
   onChangeWatermark,
 }) => {
@@ -388,6 +393,17 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     window.addEventListener('pointerup', onPointerUp);
   };
 
+  // Real-Time Smart Sound Effects (SFX) Tracker
+  const playedSfxWordsRef = useRef<Set<string>>(new Set());
+  const lastSfxTimeRef = useRef<number>(0);
+
+  // Unlock AudioContext on playback start
+  useEffect(() => {
+    if (isPlaying) {
+      unlockAudioContext();
+    }
+  }, [isPlaying]);
+
   // Render canvas loop with smooth requestAnimationFrame during playback
   useEffect(() => {
     let animId: number;
@@ -395,18 +411,48 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     const renderLoop = () => {
       if (canvasRef.current && videoRef.current) {
         const activeTime = isPlaying && videoRef.current ? videoRef.current.currentTime : currentTime;
+        
         renderCanvasFrame({
           canvas: canvasRef.current,
           video: videoRef.current,
           currentTime: activeTime,
+          duration,
           blocks,
           style,
           filter,
           aspectRatio,
           transform,
           watermark,
+          progressBar,
         });
+
+        // Frame-accurate 60fps SFX evaluation
+        if (isPlaying && audioSettings?.sfxEnabled) {
+          if (Math.abs(activeTime - lastSfxTimeRef.current) > 0.4) {
+            playedSfxWordsRef.current.clear();
+          }
+          lastSfxTimeRef.current = activeTime;
+
+          for (const block of blocks) {
+            if (activeTime < block.start - 0.05 || activeTime > block.end + 0.05) continue;
+            for (const word of block.words) {
+              if (activeTime >= word.start && activeTime <= word.end) {
+                if (!playedSfxWordsRef.current.has(word.id)) {
+                  playedSfxWordsRef.current.add(word.id);
+                  const isEmphasized = word.isEmphasized || !!word.colorOverride || !!word.emoji;
+                  const shouldPlay = audioSettings.sfxOnEmphasizedOnly !== false ? isEmphasized : true;
+                  if (shouldPlay) {
+                    const preset = audioSettings.sfxPreset || 'pop';
+                    const vol = (audioSettings.sfxVolume ?? 75) / 100;
+                    playSfx(preset, vol);
+                  }
+                }
+              }
+            }
+          }
+        }
       }
+
       if (isPlaying) {
         animId = requestAnimationFrame(renderLoop);
       }
@@ -417,7 +463,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     return () => {
       if (animId) cancelAnimationFrame(animId);
     };
-  }, [isPlaying, currentTime, blocks, style, filter, aspectRatio, transform, watermark, videoRef]);
+  }, [isPlaying, currentTime, duration, blocks, style, filter, aspectRatio, transform, watermark, progressBar, audioSettings, videoRef]);
 
   // Handle Drag & Drop file upload
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -983,7 +1029,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
             </div>
             <h3 className="text-base font-bold text-white mb-1">Upload Short or Reel Video</h3>
             <p className="text-xs text-slate-400 mb-6">
-              Drag & drop MP4, WebM, MOV video or select file to create highlighted captions 100% offline.
+              Drag & drop MP4, WebM, MOV video or select file to create animated highlighted captions.
             </p>
             <label className="cursor-pointer bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold px-5 py-2.5 rounded-xl text-xs shadow-lg shadow-amber-500/20 transition-all active:scale-95">
               <span>Select Video File</span>
@@ -1021,13 +1067,31 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
           </div>
 
           {/* Control Buttons */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center space-x-1 sm:space-x-2">
+              {/* Reset to Start */}
+              <button
+                onClick={() => onSeek(0)}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+                title="Reset to 0:00 (Key 0)"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Step Back 1 Frame (~0.033s) */}
+              <button
+                onClick={() => onSeek(Math.max(0, currentTime - 0.033))}
+                className="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-[10px] font-bold transition-colors hidden sm:inline-flex items-center"
+                title="Step Back 1 Frame (-0.033s)"
+              >
+                -1F
+              </button>
+
               {/* Skip Back 1s */}
               <button
                 onClick={() => onSeek(Math.max(0, currentTime - 1))}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-                title="Rewind 1s"
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                title="Rewind 1s (Left Arrow)"
               >
                 <Rewind className="w-4 h-4" />
               </button>
@@ -1035,7 +1099,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* Play / Pause */}
               <button
                 onClick={onTogglePlay}
-                className="p-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-all shadow-md shadow-amber-500/20 active:scale-95"
+                className="p-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold transition-all shadow-md shadow-amber-500/20 active:scale-95 min-w-[40px] flex items-center justify-center"
+                title={isPlaying ? 'Pause (Space)' : 'Play (Space)'}
               >
                 {isPlaying ? <Pause className="w-5 h-5 fill-slate-950" /> : <Play className="w-5 h-5 fill-slate-950 ml-0.5" />}
               </button>
@@ -1043,24 +1108,24 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* Skip Forward 1s */}
               <button
                 onClick={() => onSeek(Math.min(duration, currentTime + 1))}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-                title="Forward 1s"
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                title="Forward 1s (Right Arrow)"
               >
                 <FastForward className="w-4 h-4" />
               </button>
 
-              {/* Reset to Start */}
+              {/* Step Forward 1 Frame (~0.033s) */}
               <button
-                onClick={() => onSeek(0)}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
-                title="Reset to 0:00"
+                onClick={() => onSeek(Math.min(duration, currentTime + 0.033))}
+                className="px-2 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-mono text-[10px] font-bold transition-colors hidden sm:inline-flex items-center"
+                title="Step Forward 1 Frame (+0.033s)"
               >
-                <RotateCcw className="w-4 h-4" />
+                +1F
               </button>
             </div>
 
-            {/* Right Speed & Mute controls */}
-            <div className="flex items-center space-x-2">
+            {/* Right Speed & Mute & Fullscreen controls */}
+            <div className="flex items-center space-x-1.5 sm:space-x-2">
               {/* Playback Speed */}
               <select
                 value={playbackRate}
@@ -1069,7 +1134,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                   setPlaybackRate(rate);
                   if (videoRef.current) videoRef.current.playbackRate = rate;
                 }}
-                className="bg-slate-800 border border-slate-700 text-xs text-slate-300 font-semibold rounded-lg px-2 py-1 focus:outline-none"
+                className="bg-slate-800 border border-slate-700 text-xs text-slate-300 font-semibold rounded-xl px-2 py-1.5 focus:outline-none"
+                aria-label="Playback speed"
               >
                 <option value={0.5}>0.5x</option>
                 <option value={1}>1.0x</option>
@@ -1081,9 +1147,26 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* Mute Toggle */}
               <button
                 onClick={() => setIsMuted(!isMuted)}
-                className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                title={isMuted ? 'Unmute' : 'Mute'}
               >
                 {isMuted ? <VolumeX className="w-4 h-4 text-rose-400" /> : <Volume2 className="w-4 h-4" />}
+              </button>
+
+              {/* Fullscreen Toggle */}
+              <button
+                onClick={() => {
+                  if (!containerRef.current) return;
+                  if (!document.fullscreenElement) {
+                    containerRef.current.requestFullscreen?.().catch(() => {});
+                  } else {
+                    document.exitFullscreen?.().catch(() => {});
+                  }
+                }}
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
+                title="Toggle Fullscreen"
+              >
+                <Maximize2 className="w-4 h-4" />
               </button>
             </div>
           </div>

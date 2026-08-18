@@ -5,6 +5,7 @@ import {
   SubtitleWord,
   VideoTransformSettings,
   WatermarkSettings,
+  ProgressBarSettings,
   AudioSettings,
   ExportFormat,
   ExportResolution,
@@ -19,12 +20,101 @@ interface RenderFrameOptions {
   canvas: HTMLCanvasElement;
   video: HTMLVideoElement;
   currentTime: number;
+  duration?: number;
   blocks: SubtitleBlock[];
   style: SubtitleStyle;
   filter: VideoFilter;
   aspectRatio: '9:16' | '1:1' | '16:9' | '4:5';
   transform?: VideoTransformSettings;
   watermark?: WatermarkSettings;
+  progressBar?: ProgressBarSettings;
+}
+
+// ---------------------------------------------------------------------------
+// High-Performance Engine Caches: Offscreen Canvas + Text Layout Cache
+// ---------------------------------------------------------------------------
+let offscreenBlurCanvas: HTMLCanvasElement | null = null;
+let offscreenBlurCtx: CanvasRenderingContext2D | null = null;
+
+interface CachedLine {
+  words: SubtitleWord[];
+  displayStrings: string[];
+  wordWidths: number[];
+  spaceWidth: number;
+  totalLineWidth: number;
+}
+
+interface CachedSubtitleLayout {
+  key: string;
+  fontSizePx: number;
+  lineHeight: number;
+  totalHeight: number;
+  lines: CachedLine[];
+}
+
+const layoutCache = new Map<string, CachedSubtitleLayout>();
+const MAX_LAYOUT_CACHE_SIZE = 120;
+
+function getCachedLayout(
+  ctx: CanvasRenderingContext2D,
+  block: SubtitleBlock,
+  style: SubtitleStyle,
+  fontSizePx: number,
+  canvasWidth: number
+): CachedSubtitleLayout {
+  const maxWordsLine = Math.max(1, style.maxWordsPerLine || 3);
+  const cacheKey = `${block.id}_${style.fontFamily}_${fontSizePx}_${style.textTransform}_${maxWordsLine}_${style.emojiEnabled ? '1' : '0'}_${canvasWidth}`;
+
+  const existing = layoutCache.get(cacheKey);
+  if (existing) return existing;
+
+  // Compute transform case
+  const processedWords = block.words.map(w => {
+    let t = w.text;
+    if (style.textTransform === 'uppercase') t = t.toUpperCase();
+    else if (style.textTransform === 'lowercase') t = t.toLowerCase();
+    else if (style.textTransform === 'capitalize') {
+      t = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
+    }
+    return { ...w, text: t };
+  });
+
+  const lines: CachedLine[] = [];
+  const spaceWidth = ctx.measureText(' ').width;
+
+  for (let i = 0; i < processedWords.length; i += maxWordsLine) {
+    const chunk = processedWords.slice(i, i + maxWordsLine);
+    const displayStrings = chunk.map(w => (w.emoji && style.emojiEnabled ? `${w.emoji} ` : '') + w.text);
+    const wordWidths = displayStrings.map(str => ctx.measureText(str).width);
+    const totalLineWidth = wordWidths.reduce((a, b) => a + b, 0) + spaceWidth * (chunk.length - 1);
+
+    lines.push({
+      words: chunk,
+      displayStrings,
+      wordWidths,
+      spaceWidth,
+      totalLineWidth,
+    });
+  }
+
+  const lineHeight = fontSizePx * 1.35;
+  const totalHeight = lines.length * lineHeight;
+
+  const layout: CachedSubtitleLayout = {
+    key: cacheKey,
+    fontSizePx,
+    lineHeight,
+    totalHeight,
+    lines,
+  };
+
+  if (layoutCache.size >= MAX_LAYOUT_CACHE_SIZE) {
+    const firstKey = layoutCache.keys().next().value;
+    if (firstKey) layoutCache.delete(firstKey);
+  }
+  layoutCache.set(cacheKey, layout);
+
+  return layout;
 }
 
 /**
@@ -164,18 +254,92 @@ function renderWatermarkOverlay(
 }
 
 /**
+ * Renders burned-in animated progress bar / retention countdown timer
+ */
+function renderProgressBarOverlay(
+  ctx: CanvasRenderingContext2D,
+  progressBar: ProgressBarSettings,
+  currentTime: number,
+  duration: number,
+  canvasWidth: number,
+  canvasHeight: number
+): void {
+  if (!progressBar.enabled || duration <= 0) return;
+
+  const progress = Math.max(0, Math.min(1, currentTime / duration));
+  const barHeightPx = Math.max(3, Math.round(((progressBar.height || 12) / 1080) * canvasHeight));
+  const isTop = progressBar.position === 'top';
+  const y = isTop ? 0 : canvasHeight - barHeightPx;
+
+  ctx.save();
+
+  // Draw background track
+  if (progressBar.backgroundTrack) {
+    ctx.fillStyle = progressBar.backgroundTrackColor || 'rgba(0, 0, 0, 0.45)';
+    ctx.fillRect(0, y, canvasWidth, barHeightPx);
+  }
+
+  // Draw fill progress
+  const fillWidth = canvasWidth * progress;
+  if (fillWidth > 0) {
+    if (progressBar.glow) {
+      ctx.shadowColor = progressBar.color || '#F59E0B';
+      ctx.shadowBlur = Math.round(barHeightPx * 1.5);
+      ctx.shadowOffsetY = isTop ? 2 : -2;
+    }
+
+    if (progressBar.secondaryColor && progressBar.secondaryColor !== progressBar.color) {
+      const grad = ctx.createLinearGradient(0, y, fillWidth, y);
+      grad.addColorStop(0, progressBar.color);
+      grad.addColorStop(1, progressBar.secondaryColor);
+      ctx.fillStyle = grad;
+    } else {
+      ctx.fillStyle = progressBar.color || '#F59E0B';
+    }
+
+    ctx.fillRect(0, y, fillWidth, barHeightPx);
+
+    // Subtle leading spark edge
+    if (progress > 0.01 && progress < 0.99) {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.shadowColor = '#FFFFFF';
+      ctx.shadowBlur = 8;
+      ctx.fillRect(Math.max(0, fillWidth - 2), y, 3, barHeightPx);
+    }
+  }
+
+  // Optional timer text
+  if (progressBar.showTimerText) {
+    const remaining = Math.max(0, duration - currentTime);
+    const text = `${Math.floor(remaining / 60)}:${String(Math.floor(remaining % 60)).padStart(2, '0')}`;
+    const fontPx = Math.max(12, Math.round((22 / 1080) * canvasHeight));
+    ctx.font = `bold ${fontPx}px "Plus Jakarta Sans", sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = isTop ? 'top' : 'bottom';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.shadowColor = 'rgba(0,0,0,0.85)';
+    ctx.shadowBlur = 6;
+    ctx.fillText(text, canvasWidth - 16, isTop ? barHeightPx + 8 : canvasHeight - barHeightPx - 8);
+  }
+
+  ctx.restore();
+}
+
+/**
  * Draws a single video frame with filters, transforms, and subtitles onto canvas
  */
 export function renderCanvasFrame({
   canvas,
   video,
   currentTime,
+  duration,
   blocks,
   style,
   filter,
   aspectRatio,
   transform,
   watermark,
+  progressBar,
 }: RenderFrameOptions): void {
   const ctx = canvas.getContext('2d');
   if (!ctx) return;
@@ -220,17 +384,37 @@ export function renderCanvasFrame({
   } else if (framingMode === 'fit_blur') {
     // ------------------------------------------------------------------------
     // FIT WITH BLURRED BACKGROUND MODE (Popular for 16:9 widescreen -> 9:16 vertical)
+    // Accelerated via downsampled offscreen canvas buffer for smooth 60fps
     // ------------------------------------------------------------------------
-    // Step 1: Draw blurred, darkened background video to fill black bars
-    ctx.save();
-    const bgScale = Math.max(target.width / vWidth, target.height / vHeight) * 1.15;
-    const bgW = vWidth * bgScale;
-    const bgH = vHeight * bgScale;
-    const bgX = (target.width - bgW) / 2;
-    const bgY = (target.height - bgH) / 2;
-    ctx.filter = `brightness(${Math.min(100, filter.brightness * 0.55)}%) contrast(${filter.contrast}%) blur(14px)`;
-    ctx.drawImage(video, bgX, bgY, bgW, bgH);
-    ctx.restore();
+    if (!offscreenBlurCanvas) {
+      offscreenBlurCanvas = document.createElement('canvas');
+      offscreenBlurCtx = offscreenBlurCanvas.getContext('2d');
+    }
+
+    const offW = 360;
+    const offH = Math.round((offW / target.width) * target.height);
+    if (offscreenBlurCanvas.width !== offW || offscreenBlurCanvas.height !== offH) {
+      offscreenBlurCanvas.width = offW;
+      offscreenBlurCanvas.height = offH;
+    }
+
+    if (offscreenBlurCtx) {
+      offscreenBlurCtx.save();
+      offscreenBlurCtx.clearRect(0, 0, offW, offH);
+      const bgScale = Math.max(offW / vWidth, offH / vHeight) * 1.15;
+      const bgW = vWidth * bgScale;
+      const bgH = vHeight * bgScale;
+      const bgX = (offW - bgW) / 2;
+      const bgY = (offH - bgH) / 2;
+      offscreenBlurCtx.filter = `brightness(${Math.min(100, filter.brightness * 0.55)}%) contrast(${filter.contrast}%) blur(8px)`;
+      offscreenBlurCtx.drawImage(video, bgX, bgY, bgW, bgH);
+      offscreenBlurCtx.restore();
+
+      // Step 1: Draw high-speed blurred background plate
+      ctx.save();
+      ctx.drawImage(offscreenBlurCanvas, 0, 0, target.width, target.height);
+      ctx.restore();
+    }
 
     // Step 2: Draw centered, uncropped main video with fit scale + zoom + pan
     const fitScale = Math.min(target.width / vWidth, target.height / vHeight);
@@ -332,15 +516,38 @@ export function renderCanvasFrame({
     renderWatermarkOverlay(ctx, watermark, target.width, target.height);
   }
 
-  // 3. Find Active Subtitle Block at currentTime
+  // 3. Render Progress Bar / Retention Timer if enabled
+  if (progressBar) {
+    renderProgressBarOverlay(ctx, progressBar, currentTime, duration || video.duration || 0, target.width, target.height);
+  }
+
+  // 4. Find Active Subtitle Block at currentTime
   const activeBlock = blocks.find(
     b => currentTime >= b.start && currentTime <= b.end
   );
 
   if (!activeBlock || activeBlock.words.length === 0) return;
 
-  // 4. Render Subtitles with Active Word Highlight
+  // 5. Render Subtitles with Active Word Highlight
   renderSubtitleOverlay(ctx, activeBlock, currentTime, style, target.width, target.height);
+}
+
+/**
+ * Damped harmonic spring physics overshoot curve
+ * Simulates cubic-bezier(0.34, 1.56, 0.64, 1) spring dynamics for snappy word transitions
+ */
+function getSpringOvershootScale(progress: number, peakOvershoot = 1.35): number {
+  const p = Math.max(0, Math.min(1, progress));
+  if (p <= 0) return 1.0;
+  if (p >= 1) return 1.0;
+  // Fast initial snap (0..0.25) -> peak overshoot -> damped elastic settle (0.25..1.0)
+  if (p < 0.28) {
+    const t = p / 0.28;
+    return 1.0 + (peakOvershoot - 1.0) * Math.sin(t * Math.PI * 0.5);
+  }
+  const decay = Math.exp(-(p - 0.28) * 6.5);
+  const oscillation = Math.cos((p - 0.28) * Math.PI * 3.5);
+  return 1.0 + (peakOvershoot - 1.0) * decay * oscillation * 0.55;
 }
 
 /**
@@ -365,45 +572,48 @@ function renderSubtitleOverlay(
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  // Apply Transform Case
-  const processedWords = block.words.map(w => {
-    let t = w.text;
-    if (style.textTransform === 'uppercase') t = t.toUpperCase();
-    else if (style.textTransform === 'lowercase') t = t.toLowerCase();
-    else if (style.textTransform === 'capitalize') {
-      t = t.charAt(0).toUpperCase() + t.slice(1).toLowerCase();
-    }
-    return { ...w, text: t };
-  });
-
-  // Calculate Layout Positions
-  const maxWordsLine = Math.max(1, style.maxWordsPerLine || 3);
-  const lines: SubtitleWord[][] = [];
-  for (let i = 0; i < processedWords.length; i += maxWordsLine) {
-    lines.push(processedWords.slice(i, i + maxWordsLine));
-  }
+  // Get precalculated or cached text layout vectors
+  const layout = getCachedLayout(ctx, block, style, fontSizePx, canvasWidth);
 
   const posX = (style.positionXPercent / 100) * canvasWidth;
   const posY = (style.positionYPercent / 100) * canvasHeight;
-  const lineHeight = fontSizePx * 1.35;
+  const startY = posY - layout.totalHeight / 2 + layout.lineHeight / 2;
 
-  const totalHeight = lines.length * lineHeight;
-  const startY = posY - totalHeight / 2 + lineHeight / 2;
+  // Optional Speaker Diarization Badge Tag
+  if (style.showSpeakerBadge && block.speaker) {
+    const badgeFontPx = Math.max(11, Math.round(fontSizePx * 0.42));
+    ctx.save();
+    ctx.font = `800 ${badgeFontPx}px ${style.fontFamily}`;
+    const badgeText = block.speaker.toUpperCase();
+    const badgeMetrics = ctx.measureText(badgeText);
+    const badgePadX = badgeFontPx * 0.65;
+    const badgePadY = badgeFontPx * 0.35;
+    const badgeW = badgeMetrics.width + badgePadX * 2;
+    const badgeH = badgeFontPx + badgePadY * 2;
+    const badgeX = posX - badgeW / 2;
+    const badgeY = startY - layout.lineHeight / 2 - badgeH - 6;
+
+    // Draw pill
+    ctx.fillStyle = block.speakerColor ? `${block.speakerColor}33` : 'rgba(0, 0, 0, 0.75)';
+    ctx.strokeStyle = block.speakerColor || '#F59E0B';
+    ctx.lineWidth = Math.max(1.5, Math.round(badgeFontPx * 0.12));
+    ctx.beginPath();
+    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // Draw text
+    ctx.fillStyle = block.speakerColor || '#FCD34D';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(badgeText, posX, badgeY + badgeH / 2);
+    ctx.restore();
+  }
 
   // Render line by line
-  lines.forEach((lineWords, lineIdx) => {
-    const currentLineY = startY + lineIdx * lineHeight;
-
-    // Measure widths of each word in line
-    const wordWidths = lineWords.map(w => {
-      const displayStr = (w.emoji && style.emojiEnabled ? `${w.emoji} ` : '') + w.text;
-      return ctx.measureText(displayStr).width;
-    });
-
-    const spaceWidth = ctx.measureText(' ').width;
-    const totalLineWidth = wordWidths.reduce((a, b) => a + b, 0) + spaceWidth * (lineWords.length - 1);
-
-    let startX = posX - totalLineWidth / 2;
+  layout.lines.forEach((line, lineIdx) => {
+    const currentLineY = startY + lineIdx * layout.lineHeight;
+    let startX = posX - line.totalLineWidth / 2;
 
     // Background Pill for whole line if enabled
     if (style.useBackgroundPill) {
@@ -415,7 +625,7 @@ function renderSubtitleOverlay(
 
       const pillX = startX - paddingX;
       const pillY = currentLineY - pillH / 2;
-      const pillW = totalLineWidth + paddingX * 2;
+      const pillW = line.totalLineWidth + paddingX * 2;
       const radius = fontSizePx * 0.28;
 
       ctx.beginPath();
@@ -425,15 +635,15 @@ function renderSubtitleOverlay(
     }
 
     // Render individual words
-    lineWords.forEach((word, wordIdx) => {
+    line.words.forEach((word, wordIdx) => {
       const isWordActive = currentTime >= word.start && currentTime <= word.end;
       const isWordPast = currentTime > word.end;
       const isWordFuture = currentTime < word.start;
       const wordDuration = Math.max(0.05, word.end - word.start);
       const wordProgress = isWordPast ? 1 : isWordFuture ? 0 : Math.max(0, Math.min(1, (currentTime - word.start) / wordDuration));
 
-      const displayStr = (word.emoji && style.emojiEnabled ? `${word.emoji} ` : '') + word.text;
-      const wordWidth = wordWidths[wordIdx];
+      const displayStr = line.displayStrings[wordIdx];
+      const wordWidth = line.wordWidths[wordIdx];
 
       const wordCenterX = startX + wordWidth / 2;
       const wordCenterY = currentLineY;
@@ -448,7 +658,8 @@ function renderSubtitleOverlay(
       let rotation = 0;
       let opacity = 1.0;
       let customFill: string | CanvasGradient | null = null;
-      let wordColor = word.colorOverride || (isWordActive ? style.activeWordColor : style.inactiveWordColor);
+      const defaultActiveColor = block.speakerColor || style.activeWordColor;
+      let wordColor = word.colorOverride || (isWordActive ? defaultActiveColor : style.inactiveWordColor);
       let textToRender = displayStr;
 
       // Smart Auto-Caption Emphasis boost
@@ -463,19 +674,10 @@ function renderSubtitleOverlay(
       switch (style.animationType) {
         case 'pop': {
           if (isWordActive) {
-            // Snappy spring overshoot in first 25% then smooth settle
-            let popCurve: number;
-            if (wordProgress < 0.25) {
-              const t = wordProgress / 0.25;
-              popCurve = 1.0 + (baseActiveScale * 1.25 - 1.0) * Math.sin(t * Math.PI * 0.5);
-            } else if (wordProgress < 0.5) {
-              const t = (wordProgress - 0.25) / 0.25;
-              popCurve = baseActiveScale * 1.25 - (baseActiveScale * 0.25) * t;
-            } else {
-              popCurve = baseActiveScale;
-            }
-            scaleX *= popCurve;
-            scaleY *= popCurve;
+            // Realistic spring physics overshoot with snappy elastic rebound
+            const springMultiplier = getSpringOvershootScale(wordProgress, 1.42);
+            scaleX *= baseActiveScale * springMultiplier;
+            scaleY *= baseActiveScale * springMultiplier;
           }
           break;
         }
@@ -596,16 +798,21 @@ function renderSubtitleOverlay(
 
         case 'karaoke': {
           if (isWordActive) {
-            scaleX *= 1.08;
-            scaleY *= 1.08;
+            // Snappy spring scale-in on word entry with smooth elastic settle
+            const spring = getSpringOvershootScale(wordProgress, 1.25);
+            scaleX *= (baseActiveScale * 0.95) * spring;
+            scaleY *= (baseActiveScale * 0.95) * spring;
+
+            // Character-level smooth progressive wipe with micro-feather edge
             const grad = ctx.createLinearGradient(-wordWidth / 2, 0, wordWidth / 2, 0);
             const activeCol = word.colorOverride || style.activeWordColor;
             const inactiveCol = style.inactiveWordColor;
             const split = Math.max(0, Math.min(1, wordProgress));
+            const feather = Math.max(0.015, 4.0 / Math.max(20, wordWidth));
 
             grad.addColorStop(0, activeCol);
-            grad.addColorStop(split, activeCol);
-            grad.addColorStop(Math.min(1, split + 0.04), inactiveCol);
+            grad.addColorStop(Math.max(0, split - 0.01), activeCol);
+            grad.addColorStop(Math.min(1, split + feather), inactiveCol);
             grad.addColorStop(1, inactiveCol);
             customFill = grad;
           } else if (isWordPast) {
@@ -820,7 +1027,7 @@ function renderSubtitleOverlay(
 
       ctx.restore();
 
-      startX += wordWidth + spaceWidth;
+      startX += wordWidth + line.spaceWidth;
     });
   });
 
@@ -838,6 +1045,7 @@ async function exportAnimatedGif({
   aspectRatio,
   transform,
   watermark,
+  progressBar,
   resolution,
   signal,
   onProgress,
@@ -849,6 +1057,7 @@ async function exportAnimatedGif({
   aspectRatio: '9:16' | '1:1' | '16:9' | '4:5';
   transform?: VideoTransformSettings;
   watermark?: WatermarkSettings;
+  progressBar?: ProgressBarSettings;
   resolution?: ExportResolution;
   signal?: AbortSignal;
   onProgress: (progressPercent: number) => void;
@@ -907,12 +1116,14 @@ async function exportAnimatedGif({
       canvas,
       video,
       currentTime: video.currentTime,
+      duration,
       blocks,
       style,
       filter,
       aspectRatio,
       transform,
       watermark,
+      progressBar,
     });
 
     frames.push({
@@ -1084,6 +1295,7 @@ export async function exportVideoOffline({
   aspectRatio,
   transform,
   watermark,
+  progressBar,
   audioSettings,
   fps = 30,
   format = 'mp4',
@@ -1098,6 +1310,7 @@ export async function exportVideoOffline({
   aspectRatio: '9:16' | '1:1' | '16:9' | '4:5';
   transform?: VideoTransformSettings;
   watermark?: WatermarkSettings;
+  progressBar?: ProgressBarSettings;
   audioSettings?: AudioSettings;
   fps?: number;
   format?: ExportFormat;
@@ -1126,6 +1339,7 @@ export async function exportVideoOffline({
       aspectRatio,
       transform,
       watermark,
+      progressBar,
       resolution,
       signal,
       onProgress,
@@ -1323,12 +1537,14 @@ export async function exportVideoOffline({
           canvas: exportCanvas,
           video,
           currentTime: video.currentTime,
+          duration: exportDuration,
           blocks,
           style,
           filter,
           aspectRatio,
           transform,
           watermark,
+          progressBar,
         });
 
         const elapsed = Math.max(0, video.currentTime - startSec);

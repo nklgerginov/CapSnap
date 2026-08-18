@@ -19,6 +19,10 @@ import {
   Trash2,
   Target,
   Volume2,
+  Volume1,
+  Mic,
+  Radio,
+  Music,
   Activity,
   Scissors,
   AtSign,
@@ -34,6 +38,7 @@ import {
   PlatformPreset,
   VideoTransformSettings,
   WatermarkSettings,
+  ProgressBarSettings,
   AudioSettings,
 } from '../types';
 import { PRESET_THEMES } from '../utils/presetThemes';
@@ -41,6 +46,7 @@ import { HIGHLIGHT_COLOR_PRESETS } from '../utils/smartHighlighter';
 import { GoogleFontPicker } from './GoogleFontPicker';
 import { detectSubjectFocalPoint, SubjectFocalResult } from '../utils/subjectDetector';
 import { addOrUpdateKeyframe, removeKeyframe, generateAutoTrackingKeyframes } from '../utils/cropKeyframes';
+import { playSfx, SfxType } from '../utils/sfxSynthesizer';
 
 interface StylePanelProps {
   style: SubtitleStyle;
@@ -54,6 +60,8 @@ interface StylePanelProps {
   onChangeTransform?: (updated: Partial<VideoTransformSettings>) => void;
   watermark?: WatermarkSettings;
   onChangeWatermark?: (updated: Partial<WatermarkSettings>) => void;
+  progressBar?: ProgressBarSettings;
+  onChangeProgressBar?: (updated: Partial<ProgressBarSettings>) => void;
   audioSettings?: AudioSettings;
   onChangeAudioSettings?: (updated: Partial<AudioSettings>) => void;
   duration?: number;
@@ -78,6 +86,8 @@ export const StylePanel: React.FC<StylePanelProps> = ({
   onChangeTransform,
   watermark,
   onChangeWatermark,
+  progressBar,
+  onChangeProgressBar,
   audioSettings,
   onChangeAudioSettings,
   duration = 10,
@@ -702,6 +712,23 @@ export const StylePanel: React.FC<StylePanelProps> = ({
               />
             </div>
 
+            {/* Speaker Diarization Name Badges Toggle */}
+            <div className="flex items-center justify-between bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+              <div className="flex items-center space-x-2">
+                <Mic className="w-4 h-4 text-amber-400" />
+                <div>
+                  <div className="text-xs font-semibold text-slate-200">Speaker Name Badges</div>
+                  <div className="text-[10px] text-slate-400">Display [HOST], [GUEST], [SPEAKER] pills above captions</div>
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={style.showSpeakerBadge ?? true}
+                onChange={e => onChangeStyle({ showSpeakerBadge: e.target.checked })}
+                className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
+              />
+            </div>
+
             {/* Quick 9-Point Alignment Grid */}
             <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 space-y-2">
               <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
@@ -893,6 +920,158 @@ export const StylePanel: React.FC<StylePanelProps> = ({
               </div>
             </div>
 
+            {/* 3. Voice Clarity & Audio EQ Enhancer */}
+            <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                  <Mic className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Voice Clarity & EQ Booster</span>
+                </span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={audioSettings?.voiceClarity ?? false}
+                    onChange={e => onChangeAudioSettings?.({ voiceClarity: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-7 h-3.5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-amber-500" />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 text-[11px]">
+                <label className="flex items-center space-x-2 bg-slate-900/90 p-2 rounded-lg border border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={audioSettings?.voiceClarity ?? false}
+                    onChange={e => onChangeAudioSettings?.({ voiceClarity: e.target.checked })}
+                    className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-200">Vocal Presence</div>
+                    <div className="text-[9px] text-slate-400">Boosts 3.5kHz clarity</div>
+                  </div>
+                </label>
+
+                <label className="flex items-center space-x-2 bg-slate-900/90 p-2 rounded-lg border border-slate-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={audioSettings?.bassBoost ?? false}
+                    onChange={e => onChangeAudioSettings?.({ bassBoost: e.target.checked })}
+                    className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                  />
+                  <div>
+                    <div className="font-semibold text-slate-200">Bass Warmth</div>
+                    <div className="text-[9px] text-slate-400">120Hz chest punch</div>
+                  </div>
+                </label>
+              </div>
+            </div>
+
+            {/* 4. Smart Sound Effects (SFX) on Highlight Trigger Words */}
+            <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                  <Radio className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Highlight Sound Effects (SFX)</span>
+                </span>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={audioSettings?.sfxEnabled ?? false}
+                    onChange={e => onChangeAudioSettings?.({ sfxEnabled: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-7 h-3.5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-amber-500" />
+                </label>
+              </div>
+
+              {audioSettings?.sfxEnabled && (
+                <div className="space-y-2.5 pt-1 border-t border-slate-800/80">
+                  {/* SFX Preset Selector */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      <span>Sound Preset</span>
+                      <button
+                        onClick={() => {
+                          const preset = audioSettings?.sfxPreset || 'pop';
+                          const vol = (audioSettings?.sfxVolume ?? 70) / 100;
+                          playSfx(preset, vol);
+                        }}
+                        className="text-amber-400 hover:text-amber-300 flex items-center space-x-1 text-[10px] font-semibold"
+                      >
+                        <Volume1 className="w-3 h-3" />
+                        <span>Audition</span>
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-4 gap-1">
+                      {(
+                        [
+                          { label: 'Pop', value: 'pop', icon: '🫧' },
+                          { label: 'Whoosh', value: 'whoosh', icon: '💨' },
+                          { label: 'Bell Ding', value: 'ding', icon: '🔔' },
+                          { label: 'Sub Boom', value: 'boom', icon: '💥' },
+                          { label: 'Click', value: 'click', icon: '📸' },
+                          { label: 'Cash', value: 'cash', icon: '💰' },
+                          { label: 'Laser', value: 'laser', icon: '⚡' },
+                          { label: 'Glitch', value: 'glitch', icon: '👾' },
+                        ] as const
+                      ).map(s => {
+                        const isSelected = (audioSettings?.sfxPreset || 'pop') === s.value;
+                        return (
+                          <button
+                            key={s.value}
+                            onClick={() => {
+                              onChangeAudioSettings?.({ sfxPreset: s.value as SfxType });
+                              const vol = (audioSettings?.sfxVolume ?? 70) / 100;
+                              playSfx(s.value as SfxType, vol);
+                            }}
+                            className={`py-1 px-1 rounded-lg text-[10px] font-bold border transition-all text-center ${
+                              isSelected
+                                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm'
+                                : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                          >
+                            <span className="mr-0.5">{s.icon}</span>
+                            <span>{s.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* SFX Volume */}
+                  <div className="space-y-1 bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                    <div className="flex justify-between text-[11px] font-semibold text-slate-300">
+                      <span>SFX Volume</span>
+                      <span className="font-mono text-amber-400">{audioSettings?.sfxVolume ?? 70}%</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={10}
+                      max={100}
+                      value={audioSettings?.sfxVolume ?? 70}
+                      onChange={e => onChangeAudioSettings?.({ sfxVolume: parseInt(e.target.value, 10) })}
+                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                    />
+                  </div>
+
+                  {/* Trigger Filter */}
+                  <label className="flex items-center space-x-2 bg-slate-900/80 p-2 rounded-lg border border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={audioSettings?.sfxOnEmphasizedOnly ?? true}
+                      onChange={e => onChangeAudioSettings?.({ sfxOnEmphasizedOnly: e.target.checked })}
+                      className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                    />
+                    <span className="text-[11px] font-medium text-slate-300">
+                      Play on Emphasized / Highlight Words Only
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
+
             {/* 3. Watermark Overlay */}
             <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 space-y-2.5">
               <div className="flex items-center justify-between">
@@ -1074,7 +1253,129 @@ export const StylePanel: React.FC<StylePanelProps> = ({
               )}
             </div>
 
-            {/* 4. Color Grading Filters */}
+            {/* 4. Viral Retention Progress Bar */}
+            <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Activity className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="text-xs font-bold text-slate-300">Retention Progress Bar</span>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={progressBar?.enabled ?? false}
+                    onChange={e => onChangeProgressBar?.({ enabled: e.target.checked })}
+                    className="sr-only peer"
+                  />
+                  <div className="w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
+
+              {progressBar?.enabled && (
+                <div className="space-y-2.5 pt-1 border-t border-slate-800/80">
+                  {/* Position Toggle */}
+                  <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300">
+                    <span>Position</span>
+                    <div className="flex space-x-1">
+                      <button
+                        onClick={() => onChangeProgressBar?.({ position: 'top' })}
+                        className={`py-0.5 px-2.5 rounded text-[10px] font-bold border transition-all ${
+                          progressBar.position === 'top'
+                            ? 'bg-amber-500 text-slate-950 border-amber-400'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Top
+                      </button>
+                      <button
+                        onClick={() => onChangeProgressBar?.({ position: 'bottom' })}
+                        className={`py-0.5 px-2.5 rounded text-[10px] font-bold border transition-all ${
+                          progressBar.position !== 'top'
+                            ? 'bg-amber-500 text-slate-950 border-amber-400'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                        }`}
+                      >
+                        Bottom
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Height Slider */}
+                  <div className="space-y-1 bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                    <div className="flex justify-between text-[11px] font-semibold text-slate-300">
+                      <span>Bar Height</span>
+                      <span className="font-mono text-amber-400 font-bold">{progressBar.height || 12}px</span>
+                    </div>
+                    <input
+                      type="range"
+                      min={4}
+                      max={28}
+                      step={2}
+                      value={progressBar.height || 12}
+                      onChange={e => onChangeProgressBar?.({ height: parseInt(e.target.value, 10) })}
+                      className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                    />
+                  </div>
+
+                  {/* Color Gradient Presets */}
+                  <div className="space-y-1.5 bg-slate-900/80 p-2 rounded-lg border border-slate-800">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Color Style</span>
+                    <div className="grid grid-cols-4 gap-1.5">
+                      {[
+                        { label: 'Gold Amber', color: '#F59E0B', secondaryColor: '#EF4444' },
+                        { label: 'Cyber Cyan', color: '#06B6D4', secondaryColor: '#3B82F6' },
+                        { label: 'Neon Lime', color: '#10B981', secondaryColor: '#84CC16' },
+                        { label: 'Pink Glow', color: '#EC4899', secondaryColor: '#8B5CF6' },
+                      ].map(p => {
+                        const isMatch = progressBar.color === p.color;
+                        return (
+                          <button
+                            key={p.label}
+                            onClick={() => onChangeProgressBar?.({ color: p.color, secondaryColor: p.secondaryColor })}
+                            className={`py-1 px-1 rounded text-[9px] font-bold border transition-all text-center truncate ${
+                              isMatch
+                                ? 'border-amber-400 text-white font-extrabold shadow-sm'
+                                : 'bg-slate-950 border-slate-800 text-slate-400 hover:text-white'
+                            }`}
+                            style={{
+                              background: `linear-gradient(90deg, ${p.color}, ${p.secondaryColor})`,
+                              color: '#000000',
+                            }}
+                          >
+                            {p.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Glow & Timer Options */}
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="flex items-center space-x-2 bg-slate-900/90 p-2 rounded-lg border border-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={progressBar.glow ?? true}
+                        onChange={e => onChangeProgressBar?.({ glow: e.target.checked })}
+                        className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                      />
+                      <span className="text-[11px] font-medium text-slate-300">Neon Glow</span>
+                    </label>
+
+                    <label className="flex items-center space-x-2 bg-slate-900/90 p-2 rounded-lg border border-slate-800 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={progressBar.showTimerText ?? false}
+                        onChange={e => onChangeProgressBar?.({ showTimerText: e.target.checked })}
+                        className="rounded border-slate-700 text-amber-500 focus:ring-0"
+                      />
+                      <span className="text-[11px] font-medium text-slate-300">Timer Overlay</span>
+                    </label>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 5. Color Grading Filters */}
             <div className="bg-slate-950/70 p-3 rounded-xl border border-slate-800 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
