@@ -1,6 +1,6 @@
 {
-  "name": "AutoCap Studio - Offline Highlighted Subtitles",
-  "description": "Offline creator studio for generating, editing, styling, and exporting burned-in highlighted subtitles for YouTube Shorts, Instagram Reels, and TikTok.",
+  "name": "AutoCap Studio - Highlighted Subtitles",
+  "description": "Creator studio for generating, editing, styling, and exporting burned-in highlighted subtitles for YouTube Shorts, Instagram Reels, and TikTok.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

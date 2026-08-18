@@ -26,7 +26,7 @@ async function startServer() {
         return res.status(400).json({ error: "GEMINI_API_KEY environment variable is missing" });
       }
 
-      const { audioBase64, mimeType = "audio/wav", wordsPerBlock = 3 } = req.body;
+      const { audioBase64, mimeType = "audio/wav", wordsPerBlock = 3, language } = req.body;
       if (!audioBase64) {
         return res.status(400).json({ error: "audioBase64 is required" });
       }
@@ -40,9 +40,13 @@ async function startServer() {
         },
       });
 
+      const langInstruction = language && language !== "auto"
+        ? `Transcribe specifically in ${language} or the original spoken dialect.`
+        : `Transcribe in the original spoken language (auto-detecting English, Spanish, French, German, Japanese, Portuguese, Hindi, etc.).`;
+
       const promptText = `Listen carefully to the audio extracted from this video.
 Task:
-1. Transcribe ALL spoken speech/dialogue accurately in English (or the original spoken language).
+1. ${langInstruction}
 2. Group the spoken words into small subtitle blocks suitable for short-form social videos (approx ${wordsPerBlock} words per block).
 3. Provide exact timestamps in seconds for start and end times of each block, as well as timestamps for each individual word.
 4. Perform Sentiment & Mood Analysis on each block:

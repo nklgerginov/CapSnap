@@ -24,6 +24,8 @@ import { SubtitleManager } from './components/SubtitleManager';
 import { VideoExportModal } from './components/VideoExportModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { ClearCanvasModal } from './components/ClearCanvasModal';
+import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { generateDemoVideo } from './utils/sampleVideoGenerator';
 
 import {
   SubtitleBlock,
@@ -33,6 +35,7 @@ import {
   PlatformPreset,
   VideoTransformSettings,
   WatermarkSettings,
+  ProgressBarSettings,
   AudioSettings,
   Project,
 } from './types';
@@ -113,6 +116,17 @@ export default function App() {
     fontFamily: '"Plus Jakarta Sans", Montserrat, sans-serif',
   });
 
+  const [progressBar, setProgressBar] = useState<ProgressBarSettings>({
+    enabled: false,
+    position: 'bottom',
+    height: 12,
+    color: '#F59E0B',
+    secondaryColor: '#EF4444',
+    glow: true,
+    backgroundTrack: true,
+    showTimerText: false,
+  });
+
   const [audioSettings, setAudioSettings] = useState<AudioSettings>({
     videoVolume: 100,
     bgmVolume: 50,
@@ -146,8 +160,28 @@ export default function App() {
   const [isSubtitleModalOpen, setIsSubtitleModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+  const [isGeneratingDemo, setIsGeneratingDemo] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
+
+  const handleLoadDemo = async () => {
+    try {
+      setIsGeneratingDemo(true);
+      setProjectToastMsg('⚡ Generating demo reel with synchronized audio & captions...');
+      const { file, sampleBlocks } = await generateDemoVideo();
+      await handleVideoUpload(file);
+      resetBlocks(sampleBlocks);
+      setProjectToastMsg('🎉 Demo reel loaded! Press Play or audition styles.');
+      setTimeout(() => setProjectToastMsg(null), 4000);
+    } catch (e) {
+      console.error('Error generating demo video:', e);
+      setProjectToastMsg('Failed to generate demo reel. Please try uploading a video.');
+      setTimeout(() => setProjectToastMsg(null), 4000);
+    } finally {
+      setIsGeneratingDemo(false);
+    }
+  };
 
   // Mobile Experience State (< lg screens)
   const [mobileTab, setMobileTab] = useState<'preview' | 'style' | 'timeline' | 'captions'>('preview');
@@ -203,6 +237,7 @@ export default function App() {
     if (project.filter) setFilter(project.filter);
     if (project.transform) setTransform(project.transform);
     if (project.watermark) setWatermark(project.watermark);
+    if (project.progressBar) setProgressBar(project.progressBar);
     if (project.audioSettings) setAudioSettings(project.audioSettings);
     if (project.blocks) resetBlocks(project.blocks);
 
@@ -253,6 +288,7 @@ export default function App() {
       filter,
       transform,
       watermark,
+      progressBar,
       audioSettings,
       blocks,
       videoName: videoFile?.name || currentProject.videoName,
@@ -282,6 +318,7 @@ export default function App() {
         filter,
         transform,
         watermark,
+        progressBar,
         audioSettings,
         blocks,
         videoName: videoFile?.name || currentProject.videoName,
@@ -299,6 +336,7 @@ export default function App() {
     filter,
     transform,
     watermark,
+    progressBar,
     audioSettings,
     aspectRatio,
     platformPreset,
@@ -479,24 +517,51 @@ export default function App() {
 
 
   // Re-run AI Transcription manually
-  const handleAiTranscribe = async () => {
+  const handleAiTranscribe = async (language?: string) => {
     try {
       setIsTranscribing(true);
-      setTranscribeStatus('Transcribing video speech with Gemini AI...');
+      setTranscribeStatus('Extracting audio track & transcribing with Gemini AI...');
+
+      let targetBuffer = audioBuffer;
+
+      // If audioBuffer is missing, extract it dynamically from video file or video element
+      if (!targetBuffer && videoFile) {
+        try {
+          targetBuffer = await decodeAudioFromFile(videoFile);
+          setAudioBuffer(targetBuffer);
+          const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
+          setWaveform(wf);
+        } catch (e) {
+          console.warn('Could not decode audio from file:', e);
+        }
+      } else if (!targetBuffer && videoRef.current?.src) {
+        try {
+          const res = await fetch(videoRef.current.src);
+          const arrayBuffer = await res.arrayBuffer();
+          const tempAudioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+          targetBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer);
+          setAudioBuffer(targetBuffer);
+          const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
+          setWaveform(wf);
+        } catch (e) {
+          console.warn('Could not decode audio from video src:', e);
+        }
+      }
 
       let aiBlocks: SubtitleBlock[] = [];
 
-      if (audioBuffer) {
+      if (targetBuffer) {
         aiBlocks = await transcribeVideoAudioWithAI(
-          audioBuffer,
+          targetBuffer,
           style.maxWordsPerLine || 3,
-          status => setTranscribeStatus(status)
+          status => setTranscribeStatus(status),
+          language
         );
 
         if (aiBlocks.length > 0) {
-          aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, audioBuffer);
+          aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, targetBuffer);
         } else {
-          aiBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLine || 3);
+          aiBlocks = await transcribeAudioOffline(targetBuffer, style.maxWordsPerLine || 3);
         }
       } else {
         const targetDuration = duration || 10;
@@ -506,12 +571,16 @@ export default function App() {
 
       const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: aiBlocks });
       resetBlocks(highlightedBlocks);
+      setProjectToastMsg(`Generated ${highlightedBlocks.length} AI subtitle blocks!`);
+      setTimeout(() => setProjectToastMsg(null), 3500);
     } catch (err) {
       console.error('Manual AI Transcription error:', err);
       if (audioBuffer) {
         const offlineBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLine || 3);
         const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: offlineBlocks });
         resetBlocks(highlightedBlocks);
+        setProjectToastMsg(`Created ${highlightedBlocks.length} offline speech blocks.`);
+        setTimeout(() => setProjectToastMsg(null), 3500);
       }
     } finally {
       setIsTranscribing(false);
@@ -748,6 +817,9 @@ export default function App() {
         onOpenSubtitleModal={() => setIsSubtitleModalOpen(true)}
         onOpenProjectModal={() => setIsProjectModalOpen(true)}
         onOpenClearModal={() => setIsClearModalOpen(true)}
+        onOpenShortcutsModal={() => setIsShortcutsModalOpen(true)}
+        onLoadDemo={handleLoadDemo}
+        isGeneratingDemo={isGeneratingDemo}
         currentProjectName={currentProject?.name}
         hasVideo={!!videoUrl}
         hasSubtitles={blocks.length > 0}
@@ -865,6 +937,8 @@ export default function App() {
             videoRef={videoRef}
             transform={transform}
             watermark={watermark}
+            progressBar={progressBar}
+            audioSettings={audioSettings}
             onTransformChange={updated => setTransform(prev => ({ ...prev, ...updated }))}
             onChangeWatermark={updated => setWatermark(prev => ({ ...prev, ...updated }))}
           />
@@ -916,6 +990,8 @@ export default function App() {
             onChangeTransform={updated => setTransform(prev => ({ ...prev, ...updated }))}
             watermark={watermark}
             onChangeWatermark={updated => setWatermark(prev => ({ ...prev, ...updated }))}
+            progressBar={progressBar}
+            onChangeProgressBar={updated => setProgressBar(prev => ({ ...prev, ...updated }))}
             audioSettings={audioSettings}
             onChangeAudioSettings={updated => setAudioSettings(prev => ({ ...prev, ...updated }))}
             duration={duration}
@@ -1125,6 +1201,7 @@ export default function App() {
         aspectRatio={aspectRatio}
         transform={transform}
         watermark={watermark}
+        progressBar={progressBar}
         audioSettings={audioSettings}
       />
 
@@ -1145,6 +1222,12 @@ export default function App() {
         onConfirmClearSubtitlesOnly={handleClearSubtitlesOnly}
         hasVideo={!!videoUrl}
         subtitleCount={blocks.length}
+      />
+
+      {/* Keyboard Shortcuts & Gestures Help Modal */}
+      <KeyboardShortcutsModal
+        isOpen={isShortcutsModalOpen}
+        onClose={() => setIsShortcutsModalOpen(false)}
       />
     </div>
   );

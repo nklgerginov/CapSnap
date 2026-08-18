@@ -7,6 +7,7 @@ import {
   AspectRatio,
   VideoTransformSettings,
   WatermarkSettings,
+  ProgressBarSettings,
   AudioSettings,
   ExportResolution,
   ExportFormat,
@@ -23,6 +24,7 @@ interface VideoExportModalProps {
   aspectRatio: AspectRatio;
   transform?: VideoTransformSettings;
   watermark?: WatermarkSettings;
+  progressBar?: ProgressBarSettings;
   audioSettings?: AudioSettings;
 }
 
@@ -54,6 +56,7 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
   aspectRatio,
   transform,
   watermark,
+  progressBar,
   audioSettings,
 }) => {
   const [resolution, setResolution] = useState<ExportResolution>('1080p');
@@ -124,6 +127,7 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
         aspectRatio,
         transform,
         watermark,
+        progressBar,
         audioSettings,
         fps,
         format: exportFormat,
@@ -391,8 +395,8 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
               </h4>
               <p className="text-xs text-slate-400">
                 {exportFormat === 'gif'
-                  ? 'Quantizing palette and encoding LZW GIF loop offline.'
-                  : 'Rendering video frames with animated captions 100% offline.'}
+                  ? 'Quantizing palette and encoding LZW GIF loop.'
+                  : 'Rendering video frames with animated captions.'}
               </p>
             </div>
             <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">

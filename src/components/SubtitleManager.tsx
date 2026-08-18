@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   FileText,
   Wand2,
@@ -21,6 +21,12 @@ import {
   ChevronLeft,
   ChevronRight,
   Layers,
+  Search,
+  Replace,
+  Users,
+  UserCheck,
+  Languages,
+  Loader2,
 } from 'lucide-react';
 import { SubtitleBlock, SubtitleWord } from '../types';
 import {
@@ -37,6 +43,30 @@ import {
   clearSubtitleHighlights,
   HIGHLIGHT_COLOR_PRESETS,
 } from '../utils/smartHighlighter';
+
+export const SPEAKER_PRESETS = [
+  { id: 'spk1', name: 'Speaker 1', color: '#10B981', label: 'Spk 1' },
+  { id: 'spk2', name: 'Speaker 2', color: '#38BDF8', label: 'Spk 2' },
+  { id: 'host', name: 'Host', color: '#F59E0B', label: 'Host' },
+  { id: 'guest', name: 'Guest', color: '#A855F7', label: 'Guest' },
+  { id: 'narrator', name: 'Narrator', color: '#F43F5E', label: 'Narrator' },
+];
+
+export const SUPPORTED_LANGUAGES = [
+  { code: 'auto', label: 'Auto-Detect (Global)' },
+  { code: 'en', label: 'English (US/UK)' },
+  { code: 'es', label: 'Spanish (Español)' },
+  { code: 'fr', label: 'French (Français)' },
+  { code: 'de', label: 'German (Deutsch)' },
+  { code: 'it', label: 'Italian (Italiano)' },
+  { code: 'pt', label: 'Portuguese (Português)' },
+  { code: 'ja', label: 'Japanese (日本語)' },
+  { code: 'zh', label: 'Chinese (中文)' },
+  { code: 'hi', label: 'Hindi (हिन्दी)' },
+  { code: 'ar', label: 'Arabic (العربية)' },
+  { code: 'ru', label: 'Russian (Русский)' },
+  { code: 'ko', label: 'Korean (한국어)' },
+];
 
 export function regroupSubtitleWords({
   blocks,
@@ -97,13 +127,13 @@ interface SubtitleManagerProps {
   onClose: () => void;
   blocks: SubtitleBlock[];
   onUpdateBlocks: (blocks: SubtitleBlock[]) => void;
-  videoDuration: number;
+  videoDuration?: number;
   audioBuffer: AudioBuffer | null;
-  onAutoAlign: (transcriptText: string) => void;
-  onRefineAudioSync?: () => void;
+  onAutoAlign: (transcript: string) => void;
+  onRefineAudioSync?: (energySensitivity?: number) => void;
   onSeek: (time: number) => void;
   currentTime: number;
-  onAiTranscribe?: () => void;
+  onAiTranscribe?: (language: string) => Promise<void>;
   isTranscribing?: boolean;
   transcribeStatus?: string | null;
   canUndo?: boolean;
@@ -115,7 +145,7 @@ interface SubtitleManagerProps {
 export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
   isOpen,
   onClose,
-  blocks = [],
+  blocks,
   onUpdateBlocks,
   videoDuration,
   audioBuffer,
@@ -137,6 +167,12 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
   const [editingWordText, setEditingWordText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
 
+  // Global Find & Replace State
+  const [isFindReplaceOpen, setIsFindReplaceOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [replaceQuery, setReplaceQuery] = useState('');
+  const [matchCase, setMatchCase] = useState(false);
+
   // Auto-Regrouping state parameters
   const [regroupMaxChars, setRegroupMaxChars] = useState(25);
   const [regroupMaxWords, setRegroupMaxWords] = useState(3);
@@ -144,10 +180,33 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
 
   // Smart Auto-Caption Highlight State
   const [selectedHighlightColor, setSelectedHighlightColor] = useState('#FFE600');
+  const [selectedLanguage, setSelectedLanguage] = useState('auto');
+
+  // Trigger AI Transcription
+  const handleTriggerAiTranscription = async () => {
+    if (onAiTranscribe) {
+      await onAiTranscribe(selectedLanguage);
+      setActiveTab('editor');
+    }
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = React.useRef<any>(null);
   const [dictationError, setDictationError] = useState<string | null>(null);
+
+  // Find & Replace match count
+  const matchingWordCount = useMemo(() => {
+    if (!searchQuery.trim()) return 0;
+    const target = matchCase ? searchQuery : searchQuery.toLowerCase();
+    let count = 0;
+    for (const block of blocks) {
+      for (const word of block.words) {
+        const text = matchCase ? word.text : word.text.toLowerCase();
+        if (text.includes(target)) count++;
+      }
+    }
+    return count;
+  }, [blocks, searchQuery, matchCase]);
 
   if (!isOpen) return null;
 
@@ -205,6 +264,117 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
           : b
       )
     );
+  };
+
+  // Find & Replace handlers
+  const handleReplaceNext = () => {
+    if (!searchQuery.trim()) return;
+    const target = matchCase ? searchQuery : searchQuery.toLowerCase();
+    let replaced = false;
+
+    const updatedBlocks = blocks.map(block => {
+      if (replaced) return block;
+      const updatedWords = block.words.map(word => {
+        if (replaced) return word;
+        const text = matchCase ? word.text : word.text.toLowerCase();
+        if (text.includes(target)) {
+          replaced = true;
+          const newText = matchCase
+            ? word.text.replace(searchQuery, replaceQuery)
+            : word.text.replace(new RegExp(searchQuery, 'i'), replaceQuery);
+          onSeek(word.start);
+          return { ...word, text: newText };
+        }
+        return word;
+      });
+      return { ...block, words: updatedWords };
+    });
+
+    if (replaced) {
+      onUpdateBlocks(updatedBlocks);
+    }
+  };
+
+  const handleReplaceAll = () => {
+    if (!searchQuery.trim()) return;
+    const escaped = searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(escaped, matchCase ? 'g' : 'gi');
+
+    const updatedBlocks = blocks.map(block => ({
+      ...block,
+      words: block.words.map(word => ({
+        ...word,
+        text: word.text.replace(regex, replaceQuery),
+      })),
+    }));
+
+    onUpdateBlocks(updatedBlocks);
+  };
+
+  // Speaker Diarization handlers
+  const handleToggleBlockSpeaker = (blockId: string) => {
+    const block = blocks.find(b => b.id === blockId);
+    if (!block) return;
+
+    const currentSpeaker = block.speaker;
+    const currentIndex = SPEAKER_PRESETS.findIndex(s => s.name === currentSpeaker);
+    const nextPreset = currentIndex === -1 ? SPEAKER_PRESETS[0] : SPEAKER_PRESETS[(currentIndex + 1) % (SPEAKER_PRESETS.length + 1)];
+
+    onUpdateBlocks(
+      blocks.map(b =>
+        b.id === blockId
+          ? {
+              ...b,
+              speaker: nextPreset?.name,
+              speakerColor: nextPreset?.color,
+            }
+          : b
+      )
+    );
+  };
+
+  const handleSetBlockSpeakerPreset = (blockId: string, speakerName?: string, speakerColor?: string) => {
+    onUpdateBlocks(
+      blocks.map(b =>
+        b.id === blockId
+          ? {
+              ...b,
+              speaker: speakerName,
+              speakerColor: speakerColor,
+            }
+          : b
+      )
+    );
+  };
+
+  const handleAutoDiarizeAlternating = () => {
+    const updated = blocks.map((b, idx) => {
+      const isEven = idx % 2 === 0;
+      return {
+        ...b,
+        speaker: isEven ? 'Speaker 1' : 'Speaker 2',
+        speakerColor: isEven ? '#10B981' : '#38BDF8',
+      };
+    });
+    onUpdateBlocks(updated);
+  };
+
+  const handleBatchSetSpeaker = (speakerName: string, speakerColor: string) => {
+    const updated = blocks.map(b => ({
+      ...b,
+      speaker: speakerName,
+      speakerColor: speakerColor,
+    }));
+    onUpdateBlocks(updated);
+  };
+
+  const handleClearAllSpeakers = () => {
+    const updated = blocks.map(b => ({
+      ...b,
+      speaker: undefined,
+      speakerColor: undefined,
+    }));
+    onUpdateBlocks(updated);
   };
 
   const handleAutoRegroup = () => {
@@ -302,36 +472,29 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
       recognition.interimResults = true;
       recognition.lang = 'en-US';
 
-      recognition.onstart = () => {
-        setIsRecording(true);
-        setDictationError(null);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      recognition.onresult = (event: any) => {
+        let currentTranscript = '';
+        for (let i = 0; i < event.results.length; i++) {
+          currentTranscript += event.results[i][0].transcript;
+        }
+        setTranscriptInput(currentTranscript);
       };
 
-      recognition.onerror = (event: any) => {
+      recognition.onerror = () => {
+        setDictationError('Dictation ended or microphone blocked.');
         setIsRecording(false);
-        setDictationError(`Mic notice: ${event.error || 'Stopped'}`);
       };
 
       recognition.onend = () => {
         setIsRecording(false);
       };
 
-      recognition.onresult = (event: any) => {
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          }
-        }
-        if (finalTranscript) {
-          setTranscriptInput(prev => (prev ? `${prev} ${finalTranscript.trim()}` : finalTranscript.trim()));
-        }
-      };
-
       recognition.start();
+      setIsRecording(true);
     } catch {
+      setDictationError('Failed to access microphone.');
       setIsRecording(false);
-      setDictationError('Could not start microphone dictation.');
     }
   };
 
@@ -340,73 +503,180 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
       if (b.id !== blockId) return b;
       return {
         ...b,
-        words: b.words.map(w => {
-          if (w.id !== wordId) return w;
-          const autoEmoji = getEmojiForWord(editingWordText);
-          return { ...w, text: editingWordText, emoji: autoEmoji };
-        }),
+        words: b.words.map(w => (w.id === wordId ? { ...w, text: editingWordText } : w)),
       };
     });
     onUpdateBlocks(updated);
     setEditingWordId(null);
   };
 
+  const handleSplitWordToNewBlock = (blockId: string, wordIndex: number) => {
+    const targetBlock = blocks.find(b => b.id === blockId);
+    if (!targetBlock || wordIndex <= 0) return;
+
+    const wordsFirstPart = targetBlock.words.slice(0, wordIndex);
+    const wordsSecondPart = targetBlock.words.slice(wordIndex);
+
+    const firstBlock: SubtitleBlock = {
+      ...targetBlock,
+      end: wordsFirstPart[wordsFirstPart.length - 1].end,
+      words: wordsFirstPart,
+    };
+
+    const secondBlock: SubtitleBlock = {
+      id: `split-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      start: wordsSecondPart[0].start,
+      end: targetBlock.end,
+      words: wordsSecondPart,
+      speaker: targetBlock.speaker,
+      speakerColor: targetBlock.speakerColor,
+    };
+
+    const blockIndex = blocks.findIndex(b => b.id === blockId);
+    const updatedBlocks = [
+      ...blocks.slice(0, blockIndex),
+      firstBlock,
+      secondBlock,
+      ...blocks.slice(blockIndex + 1),
+    ];
+
+    onUpdateBlocks(updatedBlocks);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-150">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-3xl w-full max-h-[92vh] sm:max-h-[88vh] flex flex-col shadow-2xl overflow-hidden text-slate-100">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+      <div className="bg-slate-900 border border-slate-800 w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-3 sm:px-5 py-3 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
+        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/40">
           <div className="flex items-center space-x-2">
-            <div className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-400 shrink-0">
-              <FileText className="w-4 h-4" />
+            <div className="w-8 h-8 rounded-lg bg-amber-500/10 border border-amber-500/30 flex items-center justify-center">
+              <FileText className="w-4 h-4 text-amber-400" />
             </div>
             <div>
-              <div className="flex items-center space-x-1.5">
-                <h2 className="text-xs sm:text-sm font-bold text-white">Subtitle Manager</h2>
-                <span className="text-[10px] text-amber-400 font-mono font-bold bg-amber-500/10 px-1.5 py-0.5 rounded-full border border-amber-500/20">
-                  {blocks.length} Blocks
+              <div className="flex items-center space-x-2">
+                <h3 className="text-sm font-bold text-white">Subtitle Manager & AI Captions</h3>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
+                  {blocks.length} blocks ({totalWords} words)
                 </span>
               </div>
+              <p className="text-[11px] text-slate-400">
+                Word-level timing, multi-speaker diarization, smart find & replace, and batch tools
+              </p>
             </div>
           </div>
 
           <div className="flex items-center space-x-1.5">
-            {(onUndo || onRedo) && (
-              <div className="flex items-center space-x-1 pr-1.5 border-r border-slate-800">
-                {onUndo && (
-                  <button
-                    onClick={onUndo}
-                    disabled={!canUndo}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition-colors"
-                    title="Undo (Ctrl+Z)"
-                  >
-                    <Undo2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-                {onRedo && (
-                  <button
-                    onClick={onRedo}
-                    disabled={!canRedo}
-                    className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-40 transition-colors"
-                    title="Redo (Ctrl+Y)"
-                  >
-                    <Redo2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
+            {/* Undo / Redo */}
+            {onUndo && (
+              <button
+                onClick={onUndo}
+                disabled={!canUndo}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Undo (Ctrl+Z)"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+              </button>
             )}
+            {onRedo && (
+              <button
+                onClick={onRedo}
+                disabled={!canRedo}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                title="Redo (Ctrl+Y)"
+              >
+                <Redo2 className="w-3.5 h-3.5" />
+              </button>
+            )}
+
+            {/* Find & Replace Toggle */}
+            <button
+              onClick={() => setIsFindReplaceOpen(prev => !prev)}
+              className={`p-1.5 rounded-lg text-xs font-semibold flex items-center space-x-1 border transition-all ${
+                isFindReplaceOpen
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 font-bold shadow'
+                  : 'bg-slate-800 text-slate-300 hover:text-white border-slate-700'
+              }`}
+              title="Find and Replace text"
+            >
+              <Search className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline text-[11px]">Find & Replace</span>
+            </button>
 
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white transition-colors"
             >
               <X className="w-4 h-4" />
             </button>
           </div>
         </div>
 
-        {/* Quick Tabs: Edit Words / Script Generator / Tools & Export */}
-        <div className="flex bg-slate-950/80 px-3 sm:px-4 pt-2 border-b border-slate-800/80 gap-1 sm:gap-2 overflow-x-auto">
+        {/* Global Find & Replace Bar (Collapsible) */}
+        {isFindReplaceOpen && (
+          <div className="bg-slate-950 p-3 border-b border-slate-800 space-y-2 animate-slide-down">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative flex-1 min-w-[180px]">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Find word..."
+                  value={searchQuery}
+                  onChange={e => setSearchQuery(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-16 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-medium"
+                />
+                {searchQuery && (
+                  <span className="absolute right-2.5 top-2 text-[10px] font-bold text-amber-400 font-mono">
+                    {matchingWordCount} {matchingWordCount === 1 ? 'match' : 'matches'}
+                  </span>
+                )}
+              </div>
+
+              <div className="relative flex-1 min-w-[180px]">
+                <Replace className="w-3.5 h-3.5 absolute left-2.5 top-2.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Replace with..."
+                  value={replaceQuery}
+                  onChange={e => setReplaceQuery(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-8 pr-2.5 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 font-medium"
+                />
+              </div>
+
+              <div className="flex items-center space-x-1.5 shrink-0">
+                <button
+                  onClick={() => setMatchCase(prev => !prev)}
+                  className={`px-2 py-1.5 rounded-lg text-xs font-mono font-bold border transition-all ${
+                    matchCase
+                      ? 'bg-amber-500 text-slate-950 border-amber-400'
+                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
+                  }`}
+                  title="Match case sensitive"
+                >
+                  Aa
+                </button>
+
+                <button
+                  onClick={handleReplaceNext}
+                  disabled={!searchQuery.trim() || matchingWordCount === 0}
+                  className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-lg border border-slate-700 disabled:opacity-40"
+                >
+                  Replace Next
+                </button>
+
+                <button
+                  onClick={handleReplaceAll}
+                  disabled={!searchQuery.trim() || matchingWordCount === 0}
+                  className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs rounded-lg shadow disabled:opacity-40"
+                >
+                  Replace All ({matchingWordCount})
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Navigation Tabs */}
+        <div className="flex items-center px-4 pt-3 border-b border-slate-800 bg-slate-950/20 space-x-2">
           <button
             onClick={() => setActiveTab('editor')}
             className={`pb-2 px-2.5 sm:px-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
@@ -415,17 +685,18 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Word Timeline ({blocks.length})
+            Word Timeline Editor
           </button>
           <button
             onClick={() => setActiveTab('generator')}
-            className={`pb-2 px-2.5 sm:px-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap ${
+            className={`pb-2 px-2.5 sm:px-3 text-xs font-bold border-b-2 transition-all whitespace-nowrap flex items-center space-x-1.5 ${
               activeTab === 'generator'
                 ? 'border-amber-400 text-amber-300'
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            AI & Script Generator
+            <Sparkles className="w-3 h-3 text-amber-400" />
+            <span>AI & Script Generator</span>
           </button>
           <button
             onClick={() => setActiveTab('tools')}
@@ -435,7 +706,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                 : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            Regroup & Export
+            Multi-Speaker & Export
           </button>
         </div>
 
@@ -466,10 +737,25 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                 </div>
 
                 <div className="flex items-center space-x-1.5">
+                  {onAiTranscribe && (
+                    <button
+                      onClick={handleTriggerAiTranscription}
+                      disabled={isTranscribing}
+                      className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] rounded-lg transition-all shadow active:scale-95 disabled:opacity-50 flex items-center space-x-1"
+                      title="Transcribe speech with Gemini AI"
+                    >
+                      {isTranscribing ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="w-3 h-3 fill-slate-950" />
+                      )}
+                      <span>{isTranscribing ? 'Transcribing...' : 'AI Transcribe'}</span>
+                    </button>
+                  )}
                   <button
                     onClick={handleApplySmartHighlights}
                     disabled={blocks.length === 0}
-                    className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] rounded-lg transition-all shadow active:scale-95 disabled:opacity-40"
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] rounded-lg transition-all border border-slate-700 active:scale-95 disabled:opacity-40"
                   >
                     Auto-Highlight
                   </button>
@@ -494,14 +780,67 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
 
               {/* Subtitle Blocks List */}
               {blocks.length === 0 ? (
-                <div className="text-center py-12 text-slate-400 text-xs bg-slate-950/40 rounded-xl border border-slate-800/80 space-y-3">
-                  <p>No subtitle blocks available yet.</p>
-                  <button
-                    onClick={() => setActiveTab('generator')}
-                    className="px-4 py-1.5 bg-amber-500 text-slate-950 font-bold rounded-lg text-xs shadow hover:bg-amber-400 transition-colors"
-                  >
-                    Generate with AI or Script
-                  </button>
+                <div className="text-center py-10 px-4 bg-slate-950/60 rounded-2xl border border-slate-800 space-y-4">
+                  <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400 shadow-inner">
+                    <Sparkles className="w-6 h-6" />
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <h4 className="text-sm font-bold text-white">No Subtitles on Timeline</h4>
+                    <p className="text-xs text-slate-400 max-w-md mx-auto">
+                      Subtitles were cleared or not yet generated. AutoCap can extract audio speech and generate word-level animated subtitles with Gemini AI in seconds.
+                    </p>
+                  </div>
+
+                  {/* AI Quick Transcribe Action Panel */}
+                  <div className="max-w-md mx-auto bg-slate-900/90 border border-amber-500/30 rounded-xl p-3.5 space-y-3 shadow-lg">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center space-x-1.5 text-xs text-slate-300 font-semibold">
+                        <Languages className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Spoken Language:</span>
+                      </div>
+                      <select
+                        value={selectedLanguage}
+                        onChange={e => setSelectedLanguage(e.target.value)}
+                        className="bg-slate-950 border border-slate-700 text-xs font-bold text-amber-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-amber-500"
+                      >
+                        {SUPPORTED_LANGUAGES.map(lang => (
+                          <option key={lang.code} value={lang.code}>
+                            {lang.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {transcribeStatus && (
+                      <div className="text-[11px] text-amber-300 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 flex items-center justify-center space-x-2 font-medium">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                        <span>{transcribeStatus}</span>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+                      <button
+                        onClick={handleTriggerAiTranscription}
+                        disabled={isTranscribing}
+                        className="w-full sm:flex-1 py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50"
+                      >
+                        {isTranscribing ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Sparkles className="w-4 h-4 fill-slate-950" />
+                        )}
+                        <span>{isTranscribing ? 'Transcribing with AI...' : '✨ Generate with Gemini AI'}</span>
+                      </button>
+
+                      <button
+                        onClick={() => setActiveTab('generator')}
+                        className="w-full sm:w-auto py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs border border-slate-700 transition-colors whitespace-nowrap"
+                      >
+                        Paste Script & Align
+                      </button>
+                    </div>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
@@ -523,6 +862,21 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                           <span className="text-[10px] text-slate-500 font-mono">
                             ({(block.end - block.start).toFixed(2)}s)
                           </span>
+
+                          {/* Speaker Tag Chip */}
+                          <button
+                            onClick={() => handleToggleBlockSpeaker(block.id)}
+                            className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-all"
+                            style={{
+                              backgroundColor: block.speakerColor ? `${block.speakerColor}22` : 'rgba(30, 41, 59, 0.6)',
+                              borderColor: block.speakerColor || '#475569',
+                              color: block.speakerColor || '#94A3B8',
+                            }}
+                            title="Click to cycle speaker (Speaker 1, Speaker 2, Host, Guest, Narrator)"
+                          >
+                            <Mic className="w-2.5 h-2.5" />
+                            <span>{block.speaker || 'No Speaker'}</span>
+                          </button>
 
                           {/* Mood & Sentiment Overlay Badge */}
                           {block.mood && block.mood !== 'neutral' && (
@@ -560,7 +914,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
 
                       {/* Interactive Word Chips */}
                       <div className="flex flex-wrap gap-1.5 pt-0.5">
-                        {block.words.map(word => {
+                        {block.words.map((word, wordIdx) => {
                           const isEditing = editingWordId === word.id;
                           const hasHighlight = !!word.colorOverride;
 
@@ -598,33 +952,40 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                               }`}
                               style={
                                 hasHighlight
-                                  ? {
-                                      backgroundColor: `${word.colorOverride}25`,
-                                      color: word.colorOverride,
-                                      borderColor: `${word.colorOverride}60`,
-                                    }
+                                  ? { backgroundColor: word.colorOverride, color: '#000000' }
                                   : {}
                               }
                             >
-                              <button
+                              <span
                                 onClick={() => handleToggleWordHighlight(block.id, word.id)}
-                                className="cursor-pointer hover:opacity-80"
+                                className="cursor-pointer select-none"
                                 title="Click to toggle highlight color"
                               >
-                                {word.emoji && <span className="mr-1">{word.emoji}</span>}
-                                <span>{word.text}</span>
-                              </button>
+                                {word.text}
+                              </span>
 
-                              <button
-                                onClick={() => {
-                                  setEditingWordId(word.id);
-                                  setEditingWordText(word.text);
-                                }}
-                                className="opacity-0 group-hover/word:opacity-100 p-0.5 hover:text-amber-400 transition-opacity"
-                                title="Edit text"
-                              >
-                                <Edit2 className="w-2.5 h-2.5" />
-                              </button>
+                              <div className="opacity-0 group-hover/word:opacity-100 flex items-center space-x-0.5 transition-opacity ml-1">
+                                <button
+                                  onClick={() => {
+                                    setEditingWordId(word.id);
+                                    setEditingWordText(word.text);
+                                  }}
+                                  className="p-0.5 hover:text-amber-400 text-slate-400"
+                                  title="Edit text"
+                                >
+                                  <Edit2 className="w-2.5 h-2.5" />
+                                </button>
+
+                                {wordIdx > 0 && (
+                                  <button
+                                    onClick={() => handleSplitWordToNewBlock(block.id, wordIdx)}
+                                    className="p-0.5 hover:text-amber-400 text-slate-400"
+                                    title="Split into new block at this word"
+                                  >
+                                    <Scissors className="w-2.5 h-2.5" />
+                                  </button>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
@@ -639,54 +1000,75 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
           {/* TAB 2: AI & SCRIPT GENERATOR */}
           {activeTab === 'generator' && (
             <div className="space-y-4">
-              {/* AI Transcriber Card */}
-              <div className="bg-slate-950/80 p-3.5 rounded-xl border border-amber-500/30 space-y-2.5">
+              {/* Card 1: AI Speech Transcription Engine (Primary) */}
+              <div className="bg-slate-950/90 p-4 rounded-2xl border border-amber-500/30 space-y-3 shadow-lg">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-300 flex items-center space-x-1.5">
-                    <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Gemini AI Speech & Sentiment Transcription</span>
-                  </span>
-                  {onRefineAudioSync && (
-                    <button
-                      onClick={onRefineAudioSync}
-                      disabled={!audioBuffer || blocks.length === 0}
-                      className="px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-400 text-[10px] font-bold rounded-lg disabled:opacity-40"
-                    >
-                      <Zap className="w-3 h-3 inline mr-1 fill-amber-400" />
-                      Auto-Snap Sync
-                    </button>
-                  )}
+                  <div className="flex items-center space-x-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-bold text-white">Gemini AI Auto-Transcription</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold">
+                          Multilingual AI
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Extracts speech audio, syncs word-level timestamps & auto-applies kinetic highlight colors
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
-                <p className="text-[11px] text-slate-400 leading-snug">
-                  Extracts speech from the video track and automatically maps word timings directly to audio volume cadences.
-                </p>
+                <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center space-x-1.5 text-xs text-slate-300 font-semibold">
+                      <Languages className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Audio Spoken Language:</span>
+                    </div>
 
-                {onAiTranscribe && (
-                  <button
-                    onClick={onAiTranscribe}
-                    disabled={isTranscribing || !audioBuffer}
-                    className="w-full py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold rounded-lg text-xs transition-all shadow flex items-center justify-center space-x-1.5 disabled:opacity-50"
-                  >
-                    <Sparkles className={`w-3.5 h-3.5 ${isTranscribing ? 'animate-spin' : ''}`} />
-                    <span>{isTranscribing ? 'Transcribing Video Audio...' : '⚡ Transcribe Video Audio'}</span>
-                  </button>
-                )}
-
-                {transcribeStatus && (
-                  <div className="text-[11px] font-semibold text-amber-300 bg-amber-500/20 border border-amber-500/30 px-2.5 py-1.5 rounded-lg flex items-center space-x-1.5">
-                    <Sparkles className="w-3 h-3 animate-spin text-amber-400 shrink-0" />
-                    <span>{transcribeStatus}</span>
+                    <select
+                      value={selectedLanguage}
+                      onChange={e => setSelectedLanguage(e.target.value)}
+                      className="bg-slate-950 border border-slate-700 text-xs font-bold text-amber-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-amber-500"
+                    >
+                      {SUPPORTED_LANGUAGES.map(lang => (
+                        <option key={lang.code} value={lang.code}>
+                          {lang.label}
+                        </option>
+                      ))}
+                    </select>
                   </div>
-                )}
+
+                  {transcribeStatus && (
+                    <div className="text-[11px] text-amber-300 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 flex items-center justify-center space-x-2 font-medium">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                      <span>{transcribeStatus}</span>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleTriggerAiTranscription}
+                    disabled={isTranscribing}
+                    className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50"
+                  >
+                    {isTranscribing ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-4 h-4 fill-slate-950" />
+                    )}
+                    <span>{isTranscribing ? 'Transcribing Speech with Gemini AI...' : '✨ Generate Subtitles with AI'}</span>
+                  </button>
+                </div>
               </div>
 
-              {/* Paste Script Card */}
+              {/* Card 2: Paste Script & Dictation */}
               <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
                     <Wand2 className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Paste Custom Script (Offline Alignment)</span>
+                    <span>Paste Custom Script (Smart Alignment)</span>
                   </span>
 
                   <button
@@ -710,7 +1092,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                   rows={3}
                   value={transcriptInput}
                   onChange={e => setTranscriptInput(e.target.value)}
-                  placeholder="Paste your script text here. AutoCap Studio will align every word with video audio energy 100% offline!"
+                  placeholder="Paste your script text here. AutoCap Studio will automatically align each word to audio speech cadence."
                   className="w-full bg-slate-900 border border-slate-700/80 rounded-xl p-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-500 resize-none font-medium"
                 />
 
@@ -741,9 +1123,63 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
             </div>
           )}
 
-          {/* TAB 3: TOOLS, REGROUP & EXPORT */}
+          {/* TAB 3: MULTI-SPEAKER & EXPORT TOOLS */}
           {activeTab === 'tools' && (
             <div className="space-y-4">
+              {/* Speaker Diarization Tools */}
+              <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
+                    <Users className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Multi-Speaker Diarization & Color Coding</span>
+                  </span>
+                  <button
+                    onClick={handleClearAllSpeakers}
+                    className="text-[10px] text-slate-400 hover:text-slate-200 underline font-semibold"
+                  >
+                    Clear All
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={handleAutoDiarizeAlternating}
+                    disabled={blocks.length < 2}
+                    className="p-2.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 rounded-xl text-left transition-all disabled:opacity-40"
+                  >
+                    <div className="text-[11px] font-bold text-slate-200 flex items-center space-x-1">
+                      <UserCheck className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Auto-Alternate (A/B)</span>
+                    </div>
+                    <div className="text-[9px] text-slate-400 mt-0.5">
+                      Assigns Speaker 1 & Speaker 2 alternately
+                    </div>
+                  </button>
+
+                  <div className="p-2 bg-slate-900 border border-slate-700 rounded-xl space-y-1.5">
+                    <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Batch Tag All Blocks
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {SPEAKER_PRESETS.map(preset => (
+                        <button
+                          key={preset.id}
+                          onClick={() => handleBatchSetSpeaker(preset.name, preset.color)}
+                          className="px-2 py-0.5 rounded text-[10px] font-bold border transition-all hover:scale-105"
+                          style={{
+                            backgroundColor: `${preset.color}22`,
+                            borderColor: preset.color,
+                            color: preset.color,
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Regrouping Settings Card */}
               <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">

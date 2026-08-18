@@ -46,6 +46,8 @@ export interface SubtitleBlock {
   words: SubtitleWord[];
   mood?: 'hype' | 'happy' | 'dramatic' | 'shock' | 'inspirational' | 'warning' | 'curious' | 'neutral';
   suggestedEmoji?: string;
+  speaker?: string; // e.g. "Speaker 1", "Speaker 2", "Host", "Guest"
+  speakerColor?: string; // Optional custom accent color for this speaker
 }
 
 export interface SubtitleStyle {
@@ -71,6 +73,7 @@ export interface SubtitleStyle {
   emojiEnabled: boolean;
   autoEmojiKeywords: boolean;
   activeScaleFactor: number; // e.g. 1.15 for pop
+  showSpeakerBadge?: boolean; // Show speaker name badge tag above subtitle
 }
 
 export interface VideoFilter {
@@ -125,6 +128,18 @@ export interface WatermarkSettings {
   showBackgroundPill?: boolean; // Dark pill background toggle
 }
 
+export interface ProgressBarSettings {
+  enabled: boolean;
+  position: 'top' | 'bottom';
+  height: number; // 4 to 28 px
+  color: string;
+  secondaryColor?: string;
+  glow: boolean;
+  backgroundTrack: boolean;
+  backgroundTrackColor?: string;
+  showTimerText?: boolean;
+}
+
 export interface AudioSettings {
   videoVolume: number;   // 0 to 100
   bgmVolume: number;     // 0 to 100
@@ -134,6 +149,12 @@ export interface AudioSettings {
   targetLufs?: number;    // Target LUFS value (default -14 LUFS)
   measuredLufs?: number;  // Measured integrated LUFS of input track
   normalizeGainDb?: number; // Gain adjustment in dB (e.g. +6.5 dB)
+  sfxEnabled?: boolean;   // Trigger smart sound effects on highlighted words
+  sfxVolume?: number;     // 0 to 100 (default 70)
+  sfxPreset?: 'pop' | 'whoosh' | 'ding' | 'boom' | 'click' | 'cash' | 'laser' | 'glitch';
+  sfxOnEmphasizedOnly?: boolean; // Trigger on emphasized keywords only vs all words
+  voiceClarity?: boolean; // High-pass rumble filter + presence booster (3.5kHz)
+  bassBoost?: boolean;    // Warmth sub-low shelf (120Hz)
 }
 
 export interface PresetTheme {
@@ -178,6 +199,7 @@ export interface Project {
   filter: VideoFilter;
   transform: VideoTransformSettings;
   watermark: WatermarkSettings;
+  progressBar?: ProgressBarSettings;
   audioSettings: AudioSettings;
   blocks: SubtitleBlock[];
   thumbnail?: string;

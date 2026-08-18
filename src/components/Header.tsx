@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Sparkles, WifiOff, FileText, FolderKanban, Save, RotateCcw } from 'lucide-react';
+import { Download, Sparkles, FileText, FolderKanban, Save, RotateCcw, Keyboard, PlaySquare } from 'lucide-react';
 import { PlatformPreset } from '../types';
 
 interface HeaderProps {
@@ -9,6 +9,9 @@ interface HeaderProps {
   onOpenSubtitleModal: () => void;
   onOpenProjectModal: () => void;
   onOpenClearModal: () => void;
+  onOpenShortcutsModal?: () => void;
+  onLoadDemo?: () => void;
+  isGeneratingDemo?: boolean;
   currentProjectName?: string;
   hasVideo: boolean;
   hasSubtitles: boolean;
@@ -23,6 +26,9 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenSubtitleModal,
   onOpenProjectModal,
   onOpenClearModal,
+  onOpenShortcutsModal,
+  onLoadDemo,
+  isGeneratingDemo = false,
   currentProjectName,
   hasVideo,
   hasSubtitles,
@@ -30,10 +36,10 @@ export const Header: React.FC<HeaderProps> = ({
   isSaved = true,
 }) => {
   return (
-    <header className="bg-slate-900/90 backdrop-blur-md border-b border-slate-800/80 px-4 py-2.5 sticky top-0 z-40">
-      <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
+    <header className="bg-slate-900/95 backdrop-blur-md border-b border-slate-800/90 px-3 sm:px-4 py-2 sticky top-0 z-40">
+      <div className="max-w-7xl mx-auto flex items-center justify-between gap-2 sm:gap-4">
         {/* Zone 1: Brand Wordmark */}
-        <div className="flex items-center space-x-3 shrink-0">
+        <div className="flex items-center space-x-2 sm:space-x-3 shrink-0">
           <div className="flex items-center space-x-2">
             <div className="w-8 h-8 rounded-lg bg-amber-500 text-slate-950 flex items-center justify-center font-black text-sm shadow-md">
               <Sparkles className="w-4 h-4" />
@@ -43,14 +49,10 @@ export const Header: React.FC<HeaderProps> = ({
             </span>
           </div>
 
-          <span className="hidden sm:inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <WifiOff className="w-2.5 h-2.5 mr-1" /> Offline
-          </span>
-
           {currentProjectName && (
             <button
               onClick={onOpenProjectModal}
-              className="hidden lg:inline-flex items-center max-w-[150px] px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-800 text-slate-300 border border-slate-700 hover:border-amber-500/50 truncate transition-colors"
+              className="hidden xl:inline-flex items-center max-w-[140px] px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-800 text-slate-300 border border-slate-700 hover:border-amber-500/50 truncate transition-colors"
               title={`Active Project: ${currentProjectName} (Click to manage)`}
             >
               <FolderKanban className="w-2.5 h-2.5 mr-1 text-amber-400 shrink-0" />
@@ -78,9 +80,9 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
 
         {/* Zone 2: Platform Links */}
-        <div className="hidden sm:flex items-center bg-slate-950/70 p-0.5 rounded-xl border border-slate-800 overflow-x-auto">
+        <div className="hidden lg:flex items-center bg-slate-950/70 p-0.5 rounded-xl border border-slate-800 overflow-x-auto">
           {[
-            { id: 'tiktok', label: 'TikTok' },
+            { id: 'tiktok', label: 'TikTok (9:16)' },
             { id: 'youtube_shorts', label: 'YT Shorts' },
             { id: 'instagram_reels', label: 'IG Reels' },
             { id: 'facebook_reels', label: 'FB Reels' },
@@ -101,20 +103,30 @@ export const Header: React.FC<HeaderProps> = ({
 
         {/* Zone 3: Primary Actions */}
         <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
-          {/* Mobile Platform Select Dropdown */}
-          <div className="sm:hidden">
-            <select
-              value={platformPreset}
-              onChange={e => onSelectPlatform(e.target.value as PlatformPreset)}
-              className="bg-slate-800 border border-slate-700 text-slate-200 text-xs font-bold rounded-xl px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-amber-400"
-              aria-label="Target Platform Preset"
+          {/* Quick Demo Video Button (Shown when no video loaded yet) */}
+          {!hasVideo && onLoadDemo && (
+            <button
+              onClick={onLoadDemo}
+              disabled={isGeneratingDemo}
+              className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 transition-all shadow-sm active:scale-95 min-h-[36px]"
+              title="Load instant interactive demo short with captions"
             >
-              <option value="tiktok">TikTok (9:16)</option>
-              <option value="youtube_shorts">Shorts (9:16)</option>
-              <option value="instagram_reels">Reels (9:16)</option>
-              <option value="facebook_reels">FB Reels (9:16)</option>
-            </select>
-          </div>
+              <PlaySquare className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>{isGeneratingDemo ? 'Loading...' : 'Try Demo'}</span>
+            </button>
+          )}
+
+          {/* Keyboard Hotkeys Guide */}
+          {onOpenShortcutsModal && (
+            <button
+              onClick={onOpenShortcutsModal}
+              className="hidden md:flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-800/90 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-all shadow-sm active:scale-95 min-h-[36px]"
+              title="Keyboard Shortcuts & Gestures (Hotkeys)"
+            >
+              <Keyboard className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="hidden lg:inline">Hotkeys</span>
+            </button>
+          )}
 
           <button
             onClick={onOpenProjectModal}
