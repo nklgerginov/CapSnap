@@ -25,6 +25,7 @@ import { VideoExportModal } from './components/VideoExportModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { ClearCanvasModal } from './components/ClearCanvasModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { UpgradeModal } from './components/UpgradeModal';
 import { generateDemoVideo } from './utils/sampleVideoGenerator';
 
 import {
@@ -55,6 +56,7 @@ import { loadGoogleFont, preloadPopularGoogleFonts } from './utils/googleFonts';
 import { useSubtitleHistory } from './hooks/useSubtitleHistory';
 import { useAutoSaveSubtitles, getAutoSavedBlocks } from './hooks/useAutoSaveSubtitles';
 import { useAudioNormalizer } from './hooks/useAudioNormalizer';
+import { useProStatus } from './hooks/useProStatus';
 import {
   getAllProjects,
   saveProject,
@@ -161,6 +163,14 @@ export default function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
+  const [upgradeReason, setUpgradeReason] = useState<string | undefined>(undefined);
+  const { isPro } = useProStatus();
+
+  const handleRequestUpgrade = useCallback((reason: string) => {
+    setUpgradeReason(reason);
+    setIsUpgradeModalOpen(true);
+  }, []);
   const [isGeneratingDemo, setIsGeneratingDemo] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
@@ -818,6 +828,7 @@ export default function App() {
         onOpenProjectModal={() => setIsProjectModalOpen(true)}
         onOpenClearModal={() => setIsClearModalOpen(true)}
         onOpenShortcutsModal={() => setIsShortcutsModalOpen(true)}
+        onOpenUpgradeModal={() => handleRequestUpgrade('Unlock the full CapSnap export pipeline.')}
         onLoadDemo={handleLoadDemo}
         isGeneratingDemo={isGeneratingDemo}
         currentProjectName={currentProject?.name}
@@ -825,6 +836,7 @@ export default function App() {
         hasSubtitles={blocks.length > 0}
         lastSavedAt={lastSavedAt}
         isSaved={isSaved}
+        isPro={isPro}
       />
 
       {/* Project Toast Notification */}
@@ -1203,6 +1215,15 @@ export default function App() {
         watermark={watermark}
         progressBar={progressBar}
         audioSettings={audioSettings}
+        isPro={isPro}
+        onRequestUpgrade={handleRequestUpgrade}
+      />
+
+      {/* Upgrade to Pro Modal */}
+      <UpgradeModal
+        isOpen={isUpgradeModalOpen}
+        onClose={() => setIsUpgradeModalOpen(false)}
+        reason={upgradeReason}
       />
 
       {/* Project Manager Modal (Make, Save, Edit, Delete, Duplicate, Export/Import) */}

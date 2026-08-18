@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Download, Film, CheckCircle2, Sparkles, X, Loader2, Monitor, Gauge, Music, Image as ImageIcon } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Download, Film, CheckCircle2, Sparkles, X, Loader2, Monitor, Gauge, Music, Image as ImageIcon, Lock } from 'lucide-react';
 import {
   SubtitleBlock,
   SubtitleStyle,
@@ -14,6 +14,12 @@ import {
 } from '../types';
 import { exportVideoOffline, getTargetDimensions } from '../utils/canvasRenderer';
 
+// Free tier caps: highest-quality resolutions and pro-only containers require
+// CapSnap Pro. Keep this in sync with the copy in UpgradeModal.tsx.
+const PRO_RESOLUTIONS: ExportResolution[] = ['4k', '1080p'];
+const PRO_FORMATS: ExportFormat[] = ['mov', 'mkv', 'avi', 'ts', 'wav'];
+const FREE_WATERMARK_TEXT = 'Made with CapSnap';
+
 interface VideoExportModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -26,6 +32,10 @@ interface VideoExportModalProps {
   watermark?: WatermarkSettings;
   progressBar?: ProgressBarSettings;
   audioSettings?: AudioSettings;
+  /** Whether the current device has CapSnap Pro unlocked. */
+  isPro?: boolean;
+  /** Called when a free-tier user taps a Pro-only option. */
+  onRequestUpgrade?: (reason: string) => void;
 }
 
 const FORMAT_OPTIONS: {
@@ -58,8 +68,10 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
   watermark,
   progressBar,
   audioSettings,
+  isPro = false,
+  onRequestUpgrade,
 }) => {
-  const [resolution, setResolution] = useState<ExportResolution>('1080p');
+  const [resolution, setResolution] = useState<ExportResolution>(isPro ? '1080p' : '720p');
   const [fps, setFps] = useState<24 | 30 | 60>(30);
   const [exportFormat, setExportFormat] = useState<ExportFormat>('mp4');
   const [formatCategory, setFormatCategory] = useState<'video' | 'animation' | 'audio'>('video');
@@ -108,6 +120,13 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
   const handleStartExport = async () => {
     if (!videoRef.current) return;
 
+    // Defensive re-check: never let a free-tier export slip through with a
+    // Pro-only resolution/format, even if UI state got there some other way.
+    const safeResolution: ExportResolution =
+      !isPro && PRO_RESOLUTIONS.includes(resolution) ? '720p' : resolution;
+    const safeFormat: ExportFormat =
+      !isPro && PRO_FORMATS.includes(exportFormat) ? 'mp4' : exportFormat;
+
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
@@ -118,6 +137,20 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
       setExportedVideoUrl(null);
     }
 
+    // Free tier: force a "Made with CapSnap" watermark regardless of the
+    // user's own watermark configuration. Pro users export with whatever
+    // watermark settings they've configured (including disabled).
+    const effectiveWatermark: WatermarkSettings | undefined = isPro
+      ? watermark
+      : {
+          enabled: true,
+          text: FREE_WATERMARK_TEXT,
+          position: 'bottom-right',
+          opacity: 0.85,
+          fontSize: watermark?.fontSize ?? 22,
+          showBackgroundPill: true,
+        };
+
     try {
       const blob = await exportVideoOffline({
         video: videoRef.current,
@@ -126,12 +159,12 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
         filter,
         aspectRatio,
         transform,
-        watermark,
+        watermark: effectiveWatermark,
         progressBar,
         audioSettings,
         fps,
-        format: exportFormat,
-        resolution,
+        format: safeFormat,
+        resolution: safeResolution,
         signal: controller.signal,
         onProgress: pct => setExportProgress(pct),
       });
@@ -221,7 +254,7 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                   onClick={() => {
                     setFormatCategory('audio');
                     if (exportFormat !== 'wav' && exportFormat !== 'mp3') {
-                      setExportFormat('wav');
+                      setExportFormat(isPro ? 'wav' : 'mp3');
                     }
                   }}
                   className={`flex-1 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
@@ -239,23 +272,35 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
               <div className="grid grid-cols-3 gap-2">
                 {FORMAT_OPTIONS.filter(f => f.category === formatCategory).map(f => {
                   const isSelected = exportFormat === f.id;
+                  const isLocked = !isPro && PRO_FORMATS.includes(f.id);
                   return (
                     <button
                       key={f.id}
                       type="button"
-                      onClick={() => setExportFormat(f.id)}
+                      onClick={() => {
+                        if (isLocked) {
+                          onRequestUpgrade?.(`${f.label} export is a CapSnap Pro feature.`);
+                          return;
+                        }
+                        setExportFormat(f.id);
+                      }}
                       className={`p-2.5 rounded-xl text-left transition-all relative border ${
                         isSelected
                           ? 'bg-amber-500/10 border-amber-500 text-amber-300 ring-1 ring-amber-500/50'
                           : 'bg-slate-800/80 border-slate-700/80 text-slate-300 hover:bg-slate-800 hover:border-slate-600'
-                      }`}
+                      } ${isLocked ? 'opacity-70' : ''}`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-xs font-extrabold text-white">{f.label}</span>
+                        <span className="text-xs font-extrabold text-white flex items-center space-x-1">
+                          <span>{f.label}</span>
+                          {isLocked && <Lock className="w-2.5 h-2.5 text-amber-400" />}
+                        </span>
                         <span className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono ${
-                          isSelected ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-700 text-slate-400'
+                          isLocked
+                            ? 'bg-amber-500/20 text-amber-300'
+                            : isSelected ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-700 text-slate-400'
                         }`}>
-                          {f.badge}
+                          {isLocked ? 'Pro' : f.badge}
                         </span>
                       </div>
                       <p className="text-[10px] text-slate-400 mt-1 line-clamp-2 leading-tight">
@@ -287,21 +332,33 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                       { id: '1080p', label: '1080p HD', desc: 'Full HD' },
                       { id: '720p', label: '720p', desc: 'Fast' },
                       { id: '480p', label: '480p', desc: 'Draft' },
-                    ].map(r => (
-                      <button
-                        key={r.id}
-                        type="button"
-                        onClick={() => setResolution(r.id as ExportResolution)}
-                        className={`py-2 px-1 rounded-xl text-center transition-all ${
-                          resolution === r.id
-                            ? 'bg-amber-500 text-slate-950 font-bold shadow-md ring-2 ring-amber-400/30'
-                            : 'bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/60'
-                        }`}
-                      >
-                        <div className="text-xs font-bold leading-tight">{r.label}</div>
-                        <div className="text-[10px] opacity-75">{r.desc}</div>
-                      </button>
-                    ))}
+                    ].map(r => {
+                      const isLocked = !isPro && PRO_RESOLUTIONS.includes(r.id as ExportResolution);
+                      return (
+                        <button
+                          key={r.id}
+                          type="button"
+                          onClick={() => {
+                            if (isLocked) {
+                              onRequestUpgrade?.(`${r.label} export is a CapSnap Pro feature.`);
+                              return;
+                            }
+                            setResolution(r.id as ExportResolution);
+                          }}
+                          className={`py-2 px-1 rounded-xl text-center transition-all relative ${
+                            resolution === r.id
+                              ? 'bg-amber-500 text-slate-950 font-bold shadow-md ring-2 ring-amber-400/30'
+                              : 'bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/60'
+                          } ${isLocked ? 'opacity-70' : ''}`}
+                        >
+                          {isLocked && (
+                            <Lock className="w-2.5 h-2.5 text-amber-400 absolute top-1 right-1" />
+                          )}
+                          <div className="text-xs font-bold leading-tight">{r.label}</div>
+                          <div className="text-[10px] opacity-75">{r.desc}</div>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Download, Sparkles, FileText, FolderKanban, Save, RotateCcw, Keyboard, PlaySquare } from 'lucide-react';
+import { Download, Sparkles, FileText, FolderKanban, Save, RotateCcw, Keyboard, PlaySquare, Crown } from 'lucide-react';
 import { PlatformPreset } from '../types';
 
 interface HeaderProps {
@@ -10,6 +10,7 @@ interface HeaderProps {
   onOpenProjectModal: () => void;
   onOpenClearModal: () => void;
   onOpenShortcutsModal?: () => void;
+  onOpenUpgradeModal?: () => void;
   onLoadDemo?: () => void;
   isGeneratingDemo?: boolean;
   currentProjectName?: string;
@@ -17,6 +18,7 @@ interface HeaderProps {
   hasSubtitles: boolean;
   lastSavedAt?: Date | null;
   isSaved?: boolean;
+  isPro?: boolean;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -27,6 +29,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenProjectModal,
   onOpenClearModal,
   onOpenShortcutsModal,
+  onOpenUpgradeModal,
   onLoadDemo,
   isGeneratingDemo = false,
   currentProjectName,
@@ -34,6 +37,7 @@ export const Header: React.FC<HeaderProps> = ({
   hasSubtitles,
   lastSavedAt,
   isSaved = true,
+  isPro = false,
 }) => {
   return (
     <header className="bg-slate-900/95 backdrop-blur-md border-b border-slate-800/90 px-3 sm:px-4 py-2 sticky top-0 z-40">
@@ -126,6 +130,28 @@ export const Header: React.FC<HeaderProps> = ({
               <Keyboard className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <span className="hidden lg:inline">Hotkeys</span>
             </button>
+          )}
+
+          {/* Pro Status / Upgrade CTA */}
+          {isPro ? (
+            <span
+              className="hidden sm:flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 text-amber-300 border border-amber-500/40"
+              title="CapSnap Pro is active on this device"
+            >
+              <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>Pro</span>
+            </span>
+          ) : (
+            onOpenUpgradeModal && (
+              <button
+                onClick={onOpenUpgradeModal}
+                className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 transition-all shadow-sm active:scale-95 min-h-[36px]"
+                title="Remove watermark, unlock 4K & all export formats"
+              >
+                <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="hidden md:inline">Upgrade</span>
+              </button>
+            )
           )}
 
           <button
