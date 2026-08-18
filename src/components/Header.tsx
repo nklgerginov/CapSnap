@@ -19,6 +19,7 @@ interface HeaderProps {
   lastSavedAt?: Date | null;
   isSaved?: boolean;
   isPro?: boolean;
+  aiUsesRemaining?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -38,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   lastSavedAt,
   isSaved = true,
   isPro = false,
+  aiUsesRemaining,
 }) => {
   return (
     <header className="bg-slate-900/95 backdrop-blur-md border-b border-slate-800/90 px-3 sm:px-4 py-2 sticky top-0 z-40">
@@ -142,16 +144,26 @@ export const Header: React.FC<HeaderProps> = ({
               <span>Pro</span>
             </span>
           ) : (
-            onOpenUpgradeModal && (
-              <button
-                onClick={onOpenUpgradeModal}
-                className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 transition-all shadow-sm active:scale-95 min-h-[36px]"
-                title="Remove watermark, unlock 4K & all export formats"
-              >
-                <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span className="hidden md:inline">Upgrade</span>
-              </button>
-            )
+            <div className="flex items-center space-x-1.5">
+              {typeof aiUsesRemaining === 'number' && (
+                <span
+                  className="hidden lg:flex items-center px-2 py-1.5 rounded-xl text-[11px] font-semibold bg-slate-800/90 text-slate-400 border border-slate-700"
+                  title="Free Gemini AI transcriptions remaining on this device"
+                >
+                  {aiUsesRemaining} AI use{aiUsesRemaining === 1 ? '' : 's'} left
+                </span>
+              )}
+              {onOpenUpgradeModal && (
+                <button
+                  onClick={onOpenUpgradeModal}
+                  className="flex items-center space-x-1 px-2.5 py-1.5 rounded-xl text-xs font-bold bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/40 transition-all shadow-sm active:scale-95 min-h-[36px]"
+                  title="Remove watermark, unlock 4K & all export formats, unlimited AI transcription"
+                >
+                  <Crown className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="hidden md:inline">Upgrade</span>
+                </button>
+              )}
+            </div>
           )}
 
           <button

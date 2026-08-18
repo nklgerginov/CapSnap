@@ -57,6 +57,7 @@ import { useSubtitleHistory } from './hooks/useSubtitleHistory';
 import { useAutoSaveSubtitles, getAutoSavedBlocks } from './hooks/useAutoSaveSubtitles';
 import { useAudioNormalizer } from './hooks/useAudioNormalizer';
 import { useProStatus } from './hooks/useProStatus';
+import { useAiUsage } from './hooks/useAiUsage';
 import {
   getAllProjects,
   saveProject,
@@ -166,6 +167,7 @@ export default function App() {
   const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
   const [upgradeReason, setUpgradeReason] = useState<string | undefined>(undefined);
   const { isPro } = useProStatus();
+  const { usesRemaining, hasUsesRemaining, consumeUse } = useAiUsage();
 
   const handleRequestUpgrade = useCallback((reason: string) => {
     setUpgradeReason(reason);
@@ -493,16 +495,30 @@ export default function App() {
       let aiBlocks: SubtitleBlock[] = [];
 
       if (decodedBuffer) {
-        aiBlocks = await transcribeVideoAudioWithAI(
-          decodedBuffer,
-          style.maxWordsPerLine || 3,
-          status => setTranscribeStatus(status)
-        );
+        // Free tier gets FREE_AI_USE_LIMIT Gemini AI transcriptions per
+        // browser; Pro users are unlimited. Once exhausted, fall back to
+        // the offline transcriber instead of calling the paid API.
+        const canUseAi = isPro || consumeUse();
+
+        if (canUseAi) {
+          aiBlocks = await transcribeVideoAudioWithAI(
+            decodedBuffer,
+            style.maxWordsPerLine || 3,
+            status => setTranscribeStatus(status)
+          );
+        } else {
+          setTranscribeStatus('Free AI transcriptions used up — using offline speech detection...');
+        }
 
         if (aiBlocks.length > 0) {
           aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, decodedBuffer);
         } else {
           aiBlocks = await transcribeAudioOffline(decodedBuffer, style.maxWordsPerLine || 3);
+        }
+
+        if (!canUseAi) {
+          setProjectToastMsg("You've used all 3 free AI transcriptions. Upgrade to CapSnap Pro for unlimited AI transcription.");
+          setTimeout(() => setProjectToastMsg(null), 5000);
         }
       } else {
         const targetDuration = duration || 10;
@@ -561,17 +577,30 @@ export default function App() {
       let aiBlocks: SubtitleBlock[] = [];
 
       if (targetBuffer) {
-        aiBlocks = await transcribeVideoAudioWithAI(
-          targetBuffer,
-          style.maxWordsPerLine || 3,
-          status => setTranscribeStatus(status),
-          language
-        );
+        // Same free-tier gate as the initial upload transcription — this is
+        // an explicit user action, so when denied we also surface the
+        // upgrade modal directly instead of only a toast.
+        const canUseAi = isPro || consumeUse();
+
+        if (canUseAi) {
+          aiBlocks = await transcribeVideoAudioWithAI(
+            targetBuffer,
+            style.maxWordsPerLine || 3,
+            status => setTranscribeStatus(status),
+            language
+          );
+        } else {
+          setTranscribeStatus('Free AI transcriptions used up — using offline speech detection...');
+        }
 
         if (aiBlocks.length > 0) {
           aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, targetBuffer);
         } else {
           aiBlocks = await transcribeAudioOffline(targetBuffer, style.maxWordsPerLine || 3);
+        }
+
+        if (!canUseAi) {
+          handleRequestUpgrade("You've used all 3 free AI transcriptions. Upgrade to CapSnap Pro for unlimited AI transcription.");
         }
       } else {
         const targetDuration = duration || 10;
@@ -837,6 +866,7 @@ export default function App() {
         lastSavedAt={lastSavedAt}
         isSaved={isSaved}
         isPro={isPro}
+        aiUsesRemaining={isPro ? undefined : usesRemaining}
       />
 
       {/* Project Toast Notification */}
