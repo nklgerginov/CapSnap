@@ -24,6 +24,8 @@ import { SubtitleManager } from './components/SubtitleManager';
 import { VideoExportModal } from './components/VideoExportModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { ClearCanvasModal } from './components/ClearCanvasModal';
+import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { generateDemoVideo } from './utils/sampleVideoGenerator';
 
 import {
   SubtitleBlock,
@@ -33,6 +35,7 @@ import {
   PlatformPreset,
   VideoTransformSettings,
   WatermarkSettings,
+  ProgressBarSettings,
   AudioSettings,
   Project,
 } from './types';
@@ -60,8 +63,7 @@ import {
 } from './utils/projectStorage';
 
 export default function App() {
-  const videoRef = u
-seRef<HTMLVideoElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // Active Project State
   const [currentProject, setCurrentProject] = useState<Project>(() => createDefaultProject());
@@ -114,6 +116,17 @@ seRef<HTMLVideoElement | null>(null);
     fontFamily: '"Plus Jakarta Sans", Montserrat, sans-serif',
   });
 
+  const [progressBar, setProgressBar] = useState<ProgressBarSettings>({
+    enabled: false,
+    position: 'bottom',
+    height: 12,
+    color: '#F59E0B',
+    secondaryColor: '#EF4444',
+    glow: true,
+    backgroundTrack: true,
+    showTimerText: false,
+  });
+
   const [audioSettings, setAudioSettings] = useState<AudioSettings>({
     videoVolume: 100,
     bgmVolume: 50,
@@ -121,8 +134,7 @@ seRef<HTMLVideoElement | null>(null);
     targetLufs: -14,
   });
 
-  // Connect Web Audio A
-PI Gain Node Auto-Normalizer hook
+  // Connect Web Audio API Gain Node Auto-Normalizer hook
   const { loudnessResult } = useAudioNormalizer(
     videoRef,
     audioBuffer,
@@ -148,16 +160,32 @@ PI Gain Node Auto-Normalizer hook
   const [isSubtitleModalOpen, setIsSubtitleModalOpen] = useState(false);
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
+  const [isGeneratingDemo, setIsGeneratingDemo] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
+
+  const handleLoadDemo = async () => {
+    try {
+      setIsGeneratingDemo(true);
+      setProjectToastMsg('⚡ Generating demo reel with synchronized audio & captions...');
+      const { file, sampleBlocks } = await generateDemoVideo();
+      await handleVideoUpload(file);
+      resetBlocks(sampleBlocks);
+      setProjectToastMsg('🎉 Demo reel loaded! Press Play or audition styles.');
+      setTimeout(() => setProjectToastMsg(null), 4000);
+    } catch (e) {
+      console.error('Error generating demo video:', e);
+      setProjectToastMsg('Failed to generate demo reel. Please try uploading a video.');
+      setTimeout(() => setProjectToastMsg(null), 4000);
+    } finally {
+      setIsGeneratingDemo(false);
+    }
+  };
 
   // Mobile Experience State (< lg screens)
   const [mobileTab, setMobileTab] = useState<'preview' | 'style' | 'timeline' | 'captions'>('preview');
   const [mobileShowStickyPreview, setMobileShowStickyPreview] = useState<boolean>(true);
-  // Free AI uses tracking
-  const [freeAiUses, setFreeAiUses] = useState<number>(() => {
-    return parseInt(localStorage.getItem('freeAiUses') || '3');
-  });
 
   // Load existing project or initialize on startup
   useEffect(() => {
@@ -191,8 +219,7 @@ PI Gain Node Auto-Normalizer hook
 
   // Sync video duration with trimEnd
   useEffect(() => {
-    if 
-(duration > 0) {
+    if (duration > 0) {
       setTransform(prev => ({
         ...prev,
         trimEnd: prev.trimEnd === 0 ? duration : Math.min(prev.trimEnd, duration),
@@ -210,6 +237,7 @@ PI Gain Node Auto-Normalizer hook
     if (project.filter) setFilter(project.filter);
     if (project.transform) setTransform(project.transform);
     if (project.watermark) setWatermark(project.watermark);
+    if (project.progressBar) setProgressBar(project.progressBar);
     if (project.audioSettings) setAudioSettings(project.audioSettings);
     if (project.blocks) resetBlocks(project.blocks);
 
@@ -249,8 +277,7 @@ PI Gain Node Auto-Normalizer hook
   // Save Current Project Function
   const handleSaveCurrentProject = async (customName?: string) => {
     if (!currentProject) return;
-    const updated: 
-Project = {
+    const updated: Project = {
       ...currentProject,
       name: customName || currentProject.name,
       updatedAt: Date.now(),
@@ -261,6 +288,7 @@ Project = {
       filter,
       transform,
       watermark,
+      progressBar,
       audioSettings,
       blocks,
       videoName: videoFile?.name || currentProject.videoName,
@@ -290,6 +318,7 @@ Project = {
         filter,
         transform,
         watermark,
+        progressBar,
         audioSettings,
         blocks,
         videoName: videoFile?.name || currentProject.videoName,
@@ -307,6 +336,7 @@ Project = {
     filter,
     transform,
     watermark,
+    progressBar,
     audioSettings,
     aspectRatio,
     platformPreset,
@@ -321,8 +351,7 @@ Project = {
       const activeElement = document.activeElement;
       const isInput =
         activeElement instanceof HTMLInputElement ||
-        activeElement instanceof HTMLTextAreaElement 
-||
+        activeElement instanceof HTMLTextAreaElement ||
         (activeElement as HTMLElement)?.isContentEditable;
 
       // Save: Ctrl+S / Cmd+S
@@ -405,7 +434,6 @@ Project = {
     if (currentProject) {
       setCurrentProject(prev => ({
         ...prev,
-
         videoName: undefined,
         videoDuration: undefined,
         blocks: [],
@@ -440,21 +468,6 @@ Project = {
     let decodedBuffer: AudioBuffer | null = null;
 
     try {
-      // GATING: Check free AI uses
-      if (freeAiUses <= 0) {
-        const shouldUpgrade = confirm(
-          'You have used your 3 free AI transcriptions. Upgrade to Pro for unlimited access?'
-        );
-        if (shouldUpgrade) {
-          window.location.href = 'https://buy.stripe.com/test_3cI14hf2mdjG87W81c5J600';
-        }
-        return;
-      }
-
-      // Decrement free uses
-      const newCount = freeAiUses - 1;
-      setFreeAiUses(newCount);
-      localStorage.setItem('freeAiUses', newCount.toString());
       setIsTranscribing(true);
       setTranscribeStatus('Extracting audio track from video...');
 
@@ -484,8 +497,7 @@ Project = {
       } else {
         const targetDuration = duration || 10;
         const defaultText = 'Welcome to AutoCap Studio! Create viral video shorts with animated kinetic subtitles.';
-        aiBlocks = generateSubtitleBlocksFromTranscript(defaultText, targetDuratio
-n, style.maxWordsPerLine || 3);
+        aiBlocks = generateSubtitleBlocksFromTranscript(defaultText, targetDuration, style.maxWordsPerLine || 3);
       }
 
       const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: aiBlocks });
@@ -505,39 +517,51 @@ n, style.maxWordsPerLine || 3);
 
 
   // Re-run AI Transcription manually
-  const handleAiTranscribe = async () => {
+  const handleAiTranscribe = async (language?: string) => {
     try {
-      // GATING: Check free AI uses
-      if (freeAiUses <= 0) {
-        const shouldUpgrade = confirm(
-          'You have used your 3 free AI transcriptions. Upgrade to Pro for unlimited access?'
-        );
-        if (shouldUpgrade) {
-          window.location.href = 'https://buy.stripe.com/test_3cI14hf2mdjG87W81c5J600';
-        }
-        return;
-      }
-
-      // Decrement free uses
-      const newCount = freeAiUses - 1;
-      setFreeAiUses(newCount);
-      localStorage.setItem('freeAiUses', newCount.toString());
       setIsTranscribing(true);
-      setTranscribeStatus('Transcribing video speech with Gemini AI...');
+      setTranscribeStatus('Extracting audio track & transcribing with Gemini AI...');
+
+      let targetBuffer = audioBuffer;
+
+      // If audioBuffer is missing, extract it dynamically from video file or video element
+      if (!targetBuffer && videoFile) {
+        try {
+          targetBuffer = await decodeAudioFromFile(videoFile);
+          setAudioBuffer(targetBuffer);
+          const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
+          setWaveform(wf);
+        } catch (e) {
+          console.warn('Could not decode audio from file:', e);
+        }
+      } else if (!targetBuffer && videoRef.current?.src) {
+        try {
+          const res = await fetch(videoRef.current.src);
+          const arrayBuffer = await res.arrayBuffer();
+          const tempAudioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+          targetBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer);
+          setAudioBuffer(targetBuffer);
+          const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
+          setWaveform(wf);
+        } catch (e) {
+          console.warn('Could not decode audio from video src:', e);
+        }
+      }
 
       let aiBlocks: SubtitleBlock[] = [];
 
-      if (audioBuffer) {
+      if (targetBuffer) {
         aiBlocks = await transcribeVideoAudioWithAI(
-          audioBuffer,
+          targetBuffer,
           style.maxWordsPerLine || 3,
-          status => setTranscribeStatus(status)
+          status => setTranscribeStatus(status),
+          language
         );
 
         if (aiBlocks.length > 0) {
-          aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, audioBuffer);
+          aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, targetBuffer);
         } else {
-          aiBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLine || 3);
+          aiBlocks = await transcribeAudioOffline(targetBuffer, style.maxWordsPerLine || 3);
         }
       } else {
         const targetDuration = duration || 10;
@@ -547,13 +571,16 @@ n, style.maxWordsPerLine || 3);
 
       const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: aiBlocks });
       resetBlocks(highlightedBlocks);
+      setProjectToastMsg(`Generated ${highlightedBlocks.length} AI subtitle blocks!`);
+      setTimeout(() => setProjectToastMsg(null), 3500);
     } catch (err) {
       console.error('Manual AI Transcription error:', err);
       if (audioBuffer) {
-        con
-st offlineBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLine || 3);
+        const offlineBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLine || 3);
         const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: offlineBlocks });
         resetBlocks(highlightedBlocks);
+        setProjectToastMsg(`Created ${highlightedBlocks.length} offline speech blocks.`);
+        setTimeout(() => setProjectToastMsg(null), 3500);
       }
     } finally {
       setIsTranscribing(false);
@@ -605,8 +632,7 @@ st offlineBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLi
 
   // Toggle Play / Pause
   const handleTogglePlay = () => {
-    if (
-!videoRef.current) return;
+    if (!videoRef.current) return;
     if (isPlaying) {
       videoRef.current.pause();
     } else {
@@ -669,8 +695,7 @@ st offlineBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLi
   };
 
   // Smart Auto-Caption Highlighting Actions
-  const
- handleSmartHighlight = (highlightColor: string = '#FFE600') => {
+  const handleSmartHighlight = (highlightColor: string = '#FFE600') => {
     const highlighted = applySmartAutoCaptionHighlights({
       blocks,
       highlightColor,
@@ -732,8 +757,7 @@ st offlineBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLi
   const handleAddBlock = (startTime: number) => {
     const durationSec = 2.0;
     const safeStart = Math.max(0, Number(startTime.toFixed(3)));
-    const safeEnd = Math.min(duration || 10, Number((safeStart + durationSe
-c).toFixed(3)));
+    const safeEnd = Math.min(duration || 10, Number((safeStart + durationSec).toFixed(3)));
     const newBlock: SubtitleBlock = {
       id: `block-${Date.now()}`,
       start: safeStart,
@@ -793,8 +817,10 @@ c).toFixed(3)));
         onOpenSubtitleModal={() => setIsSubtitleModalOpen(true)}
         onOpenProjectModal={() => setIsProjectModalOpen(true)}
         onOpenClearModal={() => setIsClearModalOpen(true)}
-        currentProjec
-tName={currentProject?.name}
+        onOpenShortcutsModal={() => setIsShortcutsModalOpen(true)}
+        onLoadDemo={handleLoadDemo}
+        isGeneratingDemo={isGeneratingDemo}
+        currentProjectName={currentProject?.name}
         hasVideo={!!videoUrl}
         hasSubtitles={blocks.length > 0}
         lastSavedAt={lastSavedAt}
@@ -835,8 +861,7 @@ tName={currentProject?.name}
           <button
             onClick={() => setMobileTab('style')}
             className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
-              mobileTab === 'style
-'
+              mobileTab === 'style'
                 ? 'bg-amber-500 text-slate-950 shadow-md'
                 : 'text-slate-400 hover:text-slate-200'
             }`}
@@ -890,8 +915,7 @@ tName={currentProject?.name}
         {/* Left Column: Canvas Preview Player (7 cols) */}
         <div
           className={`lg:col-span-7 flex flex-col space-y-4 ${
-         
-   mobileTab === 'preview' ? 'flex' : 'hidden lg:flex'
+            mobileTab === 'preview' ? 'flex' : 'hidden lg:flex'
           }`}
         >
           <VideoPlayerCanvas
@@ -913,6 +937,8 @@ tName={currentProject?.name}
             videoRef={videoRef}
             transform={transform}
             watermark={watermark}
+            progressBar={progressBar}
+            audioSettings={audioSettings}
             onTransformChange={updated => setTransform(prev => ({ ...prev, ...updated }))}
             onChangeWatermark={updated => setWatermark(prev => ({ ...prev, ...updated }))}
           />
@@ -935,8 +961,7 @@ tName={currentProject?.name}
                 >
                   {isPlaying ? <Pause className="w-4 h-4 fill-slate-950" /> : <Play className="w-4 h-4 fill-slate-950 ml-0.5" />}
                 </button>
-      
-          <div className="text-xs">
+                <div className="text-xs">
                   <div className="text-slate-200 font-mono font-bold">
                     {formatDurationSec(currentTime)} / {formatDurationSec(duration)}
                   </div>
@@ -965,6 +990,8 @@ tName={currentProject?.name}
             onChangeTransform={updated => setTransform(prev => ({ ...prev, ...updated }))}
             watermark={watermark}
             onChangeWatermark={updated => setWatermark(prev => ({ ...prev, ...updated }))}
+            progressBar={progressBar}
+            onChangeProgressBar={updated => setProgressBar(prev => ({ ...prev, ...updated }))}
             audioSettings={audioSettings}
             onChangeAudioSettings={updated => setAudioSettings(prev => ({ ...prev, ...updated }))}
             duration={duration}
@@ -979,8 +1006,7 @@ tName={currentProject?.name}
         {/* Bottom Full Row: Waveform & Subtitle Timeline Scrubber */}
         <div
           className={`lg:col-span-12 ${
-            mobileTab === 'timeline' ? 'block' : 'hidden lg:
-block'
+            mobileTab === 'timeline' ? 'block' : 'hidden lg:block'
           }`}
         >
           {/* Mobile Quick Preview Bar when on Timeline tab */}
@@ -992,6 +1018,225 @@ block'
                   className="w-8 h-8 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center justify-center shadow font-bold"
                   aria-label={isPlaying ? 'Pause video' : 'Play video'}
                 >
-                  {isPlaying ? <Pause className="w-4 h-4 fill-slate-950" /> : <Play className="w-4 h-4 fill-slate-950 ml-0
+                  {isPlaying ? <Pause className="w-4 h-4 fill-slate-950" /> : <Play className="w-4 h-4 fill-slate-950 ml-0.5" />}
+                </button>
+                <div className="text-xs">
+                  <div className="text-slate-200 font-mono font-bold">
+                    {formatDurationSec(currentTime)} / {formatDurationSec(duration)}
+                  </div>
+                  <div className="text-[10px] text-slate-400 font-medium">Timeline Sync Active</div>
+                </div>
+              </div>
+              <button
+                onClick={() => setMobileTab('preview')}
+                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-300 text-xs font-semibold rounded-lg border border-slate-700 flex items-center space-x-1"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                <span>Open Canvas</span>
+              </button>
+            </div>
+          )}
 
-... [Content truncated]
+          <TimelineEditor
+            blocks={blocks}
+            currentTime={currentTime}
+            duration={duration}
+            waveform={waveform}
+            audioBuffer={audioBuffer}
+            onSeek={handleSeek}
+            transform={transform}
+            onChangeTransform={updated => setTransform(prev => ({ ...prev, ...updated }))}
+            onUpdateBlock={handleUpdateBlock}
+            onUpdateBlocks={handleUpdateBlocks}
+            onDeleteBlock={handleDeleteBlock}
+            onDeleteBlocks={handleDeleteBlocks}
+            onSplitBlock={handleSplitBlock}
+            onAddBlock={handleAddBlock}
+            onMergeBlocks={handleMergeBlocks}
+            onRefineAudioSync={handleRefineAudioSync}
+            videoRef={videoRef}
+            isPlaying={isPlaying}
+            onTogglePlay={handleTogglePlay}
+            canUndo={canUndo}
+            canRedo={canRedo}
+            onUndo={undo}
+            onRedo={redo}
+          />
+        </div>
+      </main>
+
+      {/* Mobile Floating Thumb Dock (< lg screens) */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 border-t border-slate-800/90 px-3 py-2 pb-safe backdrop-blur-xl shadow-2xl flex items-center justify-between gap-2">
+        <div className="flex items-center space-x-1">
+          <button
+            onClick={() => setMobileTab('preview')}
+            className={`p-2 rounded-xl flex flex-col items-center justify-center min-w-[48px] transition-all ${
+              mobileTab === 'preview'
+                ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Video className="w-4 h-4" />
+            <span className="text-[10px] mt-0.5">Video</span>
+          </button>
+
+          <button
+            onClick={() => setMobileTab('style')}
+            className={`p-2 rounded-xl flex flex-col items-center justify-center min-w-[48px] transition-all ${
+              mobileTab === 'style'
+                ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Palette className="w-4 h-4" />
+            <span className="text-[10px] mt-0.5">Styles</span>
+          </button>
+
+          <button
+            onClick={() => setMobileTab('timeline')}
+            className={`p-2 rounded-xl flex flex-col items-center justify-center min-w-[48px] transition-all ${
+              mobileTab === 'timeline'
+                ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Sliders className="w-4 h-4" />
+            <span className="text-[10px] mt-0.5">Timeline</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setMobileTab('captions');
+              setIsSubtitleModalOpen(true);
+            }}
+            className={`p-2 rounded-xl flex flex-col items-center justify-center min-w-[48px] transition-all ${
+              mobileTab === 'captions'
+                ? 'bg-amber-500/20 text-amber-400 font-bold border border-amber-500/30'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <div className="relative">
+              <FileText className="w-4 h-4" />
+              {blocks.length > 0 && (
+                <span className="absolute -top-1 -right-2 bg-amber-500 text-slate-950 text-[9px] font-black rounded-full px-1 leading-none">
+                  {blocks.length}
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] mt-0.5">Captions</span>
+          </button>
+        </div>
+
+        {/* Action Controls: Undo/Redo & Play / Export */}
+        <div className="flex items-center space-x-1.5">
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            className={`p-2 rounded-xl border transition-all ${
+              canUndo
+                ? 'bg-slate-800 text-slate-200 border-slate-700 hover:bg-slate-700 active:scale-95'
+                : 'bg-slate-900/50 text-slate-600 border-slate-800/60 cursor-not-allowed opacity-50'
+            }`}
+            title="Undo (Ctrl+Z)"
+            aria-label="Undo"
+          >
+            <Undo2 className="w-4 h-4" />
+          </button>
+
+          {videoUrl && (
+            <button
+              onClick={handleTogglePlay}
+              className="p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 active:scale-95 shadow-sm"
+              title={isPlaying ? 'Pause' : 'Play'}
+              aria-label={isPlaying ? 'Pause' : 'Play'}
+            >
+              {isPlaying ? <Pause className="w-4 h-4 fill-amber-400" /> : <Play className="w-4 h-4 fill-amber-400 ml-0.5" />}
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsExportModalOpen(true)}
+            disabled={!videoUrl}
+            className={`px-3 py-2 rounded-xl text-xs font-black transition-all shadow-md flex items-center space-x-1 active:scale-95 ${
+              videoUrl
+                ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20'
+                : 'bg-slate-800/60 text-slate-500 cursor-not-allowed border border-slate-800'
+            }`}
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Export</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Subtitle & Script Manager Modal */}
+      <SubtitleManager
+        isOpen={isSubtitleModalOpen}
+        onClose={() => setIsSubtitleModalOpen(false)}
+        blocks={blocks}
+        onUpdateBlocks={setBlocks}
+        videoDuration={duration}
+        audioBuffer={audioBuffer}
+        onAutoAlign={handleAutoAlign}
+        onRefineAudioSync={handleRefineAudioSync}
+        onSeek={handleSeek}
+        currentTime={currentTime}
+        onAiTranscribe={handleAiTranscribe}
+        isTranscribing={isTranscribing}
+        transcribeStatus={transcribeStatus}
+        canUndo={canUndo}
+        canRedo={canRedo}
+        onUndo={undo}
+        onRedo={redo}
+      />
+
+      {/* Burned-in Video Export Modal */}
+      <VideoExportModal
+        isOpen={isExportModalOpen}
+        onClose={() => setIsExportModalOpen(false)}
+        videoRef={videoRef}
+        blocks={blocks}
+        style={style}
+        filter={filter}
+        aspectRatio={aspectRatio}
+        transform={transform}
+        watermark={watermark}
+        progressBar={progressBar}
+        audioSettings={audioSettings}
+      />
+
+      {/* Project Manager Modal (Make, Save, Edit, Delete, Duplicate, Export/Import) */}
+      <ProjectManagerModal
+        isOpen={isProjectModalOpen}
+        onClose={() => setIsProjectModalOpen(false)}
+        currentProject={currentProject}
+        onSelectProject={handleSelectProject}
+        onSaveCurrentProject={handleSaveCurrentProject}
+      />
+
+      {/* Clear Canvas / Reset Project Modal */}
+      <ClearCanvasModal
+        isOpen={isClearModalOpen}
+        onClose={() => setIsClearModalOpen(false)}
+        onConfirmClearAll={handleClearAll}
+        onConfirmClearSubtitlesOnly={handleClearSubtitlesOnly}
+        hasVideo={!!videoUrl}
+        subtitleCount={blocks.length}
+      />
+
+      {/* Keyboard Shortcuts & Gestures Help Modal */}
+      <KeyboardShortcutsModal
+        isOpen={isShortcutsModalOpen}
+        onClose={() => setIsShortcutsModalOpen(false)}
+      />
+    </div>
+  );
+}
+
+function formatDurationSec(seconds: number): string {
+  if (isNaN(seconds) || seconds < 0) return '0:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${String(secs).padStart(2, '0')}`;
+}
+
