@@ -11,9 +11,13 @@ interface UpgradeModalProps {
 
 const PRO_FEATURES = [
   'No "Made with CapSnap" watermark on exports',
-  '1080p & 4K Ultra export resolution',
+  '1080p, 4K Ultra & buttery-smooth 60fps export',
   'All export containers: MOV, MKV, AVI, TS + WAV lossless audio',
   'Unlimited AI transcriptions',
+  'Auto emoji badges & speaker name badges',
+  'Auto-highlight key phrases',
+  'Voice Clarity EQ & highlight sound effects (SFX)',
+  'Custom channel watermark & retention progress bar',
 ];
 
 export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, reason }) => {
@@ -21,7 +25,7 @@ export const UpgradeModal: React.FC<UpgradeModalProps> = ({ isOpen, onClose, rea
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl overflow-hidden text-slate-100 space-y-4">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-5 shadow-2xl text-slate-100 space-y-4 max-h-[90vh] overflow-y-auto custom-scrollbar">
         {/* Header */}
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
           <div className="flex items-center space-x-2.5">

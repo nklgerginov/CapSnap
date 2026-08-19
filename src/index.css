@@ -1,1 +1,28 @@
 @import "tailwindcss";
+
+/* Respect the iOS/Android gesture-bar safe area so fixed bottom UI (the
+   mobile action dock) never sits underneath it. Used across App.tsx. */
+@utility pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+/* Slim, low-contrast scrollbar for the app's dark modals/panels. Used across
+   VideoExportModal, SubtitleManager, StylePanel and UpgradeModal. */
+.custom-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background-color: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(148, 163, 184, 0.55);
+}
