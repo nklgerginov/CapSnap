@@ -29,6 +29,7 @@ import {
   Gauge,
   Star,
   Pin,
+  Lock,
 } from 'lucide-react';
 import {
   SubtitleStyle,
@@ -70,6 +71,8 @@ interface StylePanelProps {
   onClearHighlights?: () => void;
   videoRef?: React.RefObject<HTMLVideoElement | null>;
   onSeek?: (time: number) => void;
+  isPro?: boolean;
+  onRequestUpgrade?: (reason: string) => void;
 }
 
 const FAVORITES_STORAGE_KEY = 'autocap_favorite_preset_ids';
@@ -96,12 +99,29 @@ export const StylePanel: React.FC<StylePanelProps> = ({
   onClearHighlights,
   videoRef,
   onSeek,
+  isPro = false,
+  onRequestUpgrade,
 }) => {
   const [activeTab, setActiveTab] = useState<'presets' | 'style' | 'motion' | 'video'>('presets');
   const [presetCategory, setPresetCategory] = useState<'all' | 'favorites' | 'viral' | 'gaming' | 'neon' | 'minimal'>('all');
   const [localSelectedPresetId, setLocalSelectedPresetId] = useState<string>('hormozi_viral');
   const [selectedHighlightColor, setSelectedHighlightColor] = useState('#FFE600');
   const [showWatermarkFontPicker, setShowWatermarkFontPicker] = useState(false);
+
+  // Shared paywall gate: these caption/audio/branding features are all
+  // Pro-only. Keep this list in sync with the copy in UpgradeModal.tsx.
+  const requireProOrPrompt = (reason: string): boolean => {
+    if (isPro) return true;
+    onRequestUpgrade?.(reason);
+    return false;
+  };
+
+  const ProBadge: React.FC = () => (
+    <span className="inline-flex items-center space-x-0.5 bg-amber-500/15 text-amber-300 text-[9px] font-bold px-1.5 py-0.5 rounded-md border border-amber-500/30 ml-1.5">
+      <Lock className="w-2.5 h-2.5" />
+      <span>PRO</span>
+    </span>
+  );
 
   // Favorite / Pinned Presets State (Persisted in localStorage)
   const [favoritePresetIds, setFavoritePresetIds] = useState<string[]>(() => {
@@ -479,6 +499,7 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                   <span className="text-xs font-bold text-amber-300 flex items-center space-x-1.5">
                     <Zap className="w-3.5 h-3.5 text-amber-400" />
                     <span>Auto-Highlight Key Phrases</span>
+                    {!isPro && <ProBadge />}
                   </span>
                   {onClearHighlights && (
                     <button
@@ -506,10 +527,14 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                   </div>
 
                   <button
-                    onClick={() => onSmartHighlight(selectedHighlightColor)}
-                    className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] rounded-lg shadow transition-all active:scale-95"
+                    onClick={() => {
+                      if (!requireProOrPrompt('Auto-Highlight Key Phrases is a CapSnap Pro feature.')) return;
+                      onSmartHighlight(selectedHighlightColor);
+                    }}
+                    className="px-3 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] rounded-lg shadow transition-all active:scale-95 flex items-center space-x-1"
                   >
-                    Highlight
+                    {!isPro && <Lock className="w-2.5 h-2.5" />}
+                    <span>Highlight</span>
                   </button>
                 </div>
               </div>
@@ -696,35 +721,47 @@ export const StylePanel: React.FC<StylePanelProps> = ({
             </div>
 
             {/* Auto Emoji Badges Toggle */}
-            <div className="flex items-center justify-between bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+            <div className={`flex items-center justify-between bg-slate-950/70 p-2.5 rounded-xl border border-slate-800 ${!isPro ? 'opacity-90' : ''}`}>
               <div className="flex items-center space-x-2">
                 <Smile className="w-4 h-4 text-amber-400" />
                 <div>
-                  <div className="text-xs font-semibold text-slate-200">Auto Emoji Badges</div>
+                  <div className="text-xs font-semibold text-slate-200 flex items-center">
+                    <span>Auto Emoji Badges</span>
+                    {!isPro && <ProBadge />}
+                  </div>
                   <div className="text-[10px] text-slate-400">Insert emojis for keywords (🔥, 💰, 🚀)</div>
                 </div>
               </div>
               <input
                 type="checkbox"
-                checked={style.emojiEnabled}
-                onChange={e => onChangeStyle({ emojiEnabled: e.target.checked, autoEmojiKeywords: e.target.checked })}
+                checked={isPro && style.emojiEnabled}
+                onChange={e => {
+                  if (!requireProOrPrompt('Auto Emoji Badges is a CapSnap Pro feature.')) return;
+                  onChangeStyle({ emojiEnabled: e.target.checked, autoEmojiKeywords: e.target.checked });
+                }}
                 className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
               />
             </div>
 
             {/* Speaker Diarization Name Badges Toggle */}
-            <div className="flex items-center justify-between bg-slate-950/70 p-2.5 rounded-xl border border-slate-800">
+            <div className={`flex items-center justify-between bg-slate-950/70 p-2.5 rounded-xl border border-slate-800 ${!isPro ? 'opacity-90' : ''}`}>
               <div className="flex items-center space-x-2">
                 <Mic className="w-4 h-4 text-amber-400" />
                 <div>
-                  <div className="text-xs font-semibold text-slate-200">Speaker Name Badges</div>
+                  <div className="text-xs font-semibold text-slate-200 flex items-center">
+                    <span>Speaker Name Badges</span>
+                    {!isPro && <ProBadge />}
+                  </div>
                   <div className="text-[10px] text-slate-400">Display [HOST], [GUEST], [SPEAKER] pills above captions</div>
                 </div>
               </div>
               <input
                 type="checkbox"
-                checked={style.showSpeakerBadge ?? true}
-                onChange={e => onChangeStyle({ showSpeakerBadge: e.target.checked })}
+                checked={isPro && (style.showSpeakerBadge ?? true)}
+                onChange={e => {
+                  if (!requireProOrPrompt('Speaker Name Badges is a CapSnap Pro feature.')) return;
+                  onChangeStyle({ showSpeakerBadge: e.target.checked });
+                }}
                 className="w-4 h-4 rounded accent-amber-500 cursor-pointer"
               />
             </div>
@@ -926,12 +963,16 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                 <span className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
                   <Mic className="w-3.5 h-3.5 text-amber-400" />
                   <span>Voice Clarity & EQ Booster</span>
+                  {!isPro && <ProBadge />}
                 </span>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={audioSettings?.voiceClarity ?? false}
-                    onChange={e => onChangeAudioSettings?.({ voiceClarity: e.target.checked })}
+                    checked={isPro && (audioSettings?.voiceClarity ?? false)}
+                    onChange={e => {
+                      if (!requireProOrPrompt('Voice Clarity is a CapSnap Pro feature.')) return;
+                      onChangeAudioSettings?.({ voiceClarity: e.target.checked });
+                    }}
                     className="sr-only peer"
                   />
                   <div className="w-7 h-3.5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-amber-500" />
@@ -942,8 +983,11 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                 <label className="flex items-center space-x-2 bg-slate-900/90 p-2 rounded-lg border border-slate-800 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={audioSettings?.voiceClarity ?? false}
-                    onChange={e => onChangeAudioSettings?.({ voiceClarity: e.target.checked })}
+                    checked={isPro && (audioSettings?.voiceClarity ?? false)}
+                    onChange={e => {
+                      if (!requireProOrPrompt('Voice Clarity is a CapSnap Pro feature.')) return;
+                      onChangeAudioSettings?.({ voiceClarity: e.target.checked });
+                    }}
                     className="rounded border-slate-700 text-amber-500 focus:ring-0"
                   />
                   <div>
@@ -973,19 +1017,23 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                 <span className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
                   <Radio className="w-3.5 h-3.5 text-amber-400" />
                   <span>Highlight Sound Effects (SFX)</span>
+                  {!isPro && <ProBadge />}
                 </span>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={audioSettings?.sfxEnabled ?? false}
-                    onChange={e => onChangeAudioSettings?.({ sfxEnabled: e.target.checked })}
+                    checked={isPro && (audioSettings?.sfxEnabled ?? false)}
+                    onChange={e => {
+                      if (!requireProOrPrompt('Highlight Sound Effects is a CapSnap Pro feature.')) return;
+                      onChangeAudioSettings?.({ sfxEnabled: e.target.checked });
+                    }}
                     className="sr-only peer"
                   />
                   <div className="w-7 h-3.5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-amber-500" />
                 </label>
               </div>
 
-              {audioSettings?.sfxEnabled && (
+              {isPro && audioSettings?.sfxEnabled && (
                 <div className="space-y-2.5 pt-1 border-t border-slate-800/80">
                   {/* SFX Preset Selector */}
                   <div className="space-y-1.5">
@@ -1078,19 +1126,23 @@ export const StylePanel: React.FC<StylePanelProps> = ({
                 <span className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
                   <AtSign className="w-3.5 h-3.5 text-amber-400" />
                   <span>Channel Watermark & Handle</span>
+                  {!isPro && <ProBadge />}
                 </span>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={watermark?.enabled || false}
-                    onChange={e => onChangeWatermark?.({ enabled: e.target.checked })}
+                    checked={isPro && (watermark?.enabled || false)}
+                    onChange={e => {
+                      if (!requireProOrPrompt('Custom channel watermarks are a CapSnap Pro feature. Free exports always include a "Made with CapSnap" watermark.')) return;
+                      onChangeWatermark?.({ enabled: e.target.checked });
+                    }}
                     className="sr-only peer"
                   />
                   <div className="w-7 h-3.5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-2.5 after:w-2.5 after:transition-all peer-checked:bg-amber-500" />
                 </label>
               </div>
 
-              {watermark?.enabled && (
+              {isPro && watermark?.enabled && (
                 <div className="space-y-2.5 pt-1">
                   <input
                     type="text"
@@ -1258,20 +1310,26 @@ export const StylePanel: React.FC<StylePanelProps> = ({
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <Activity className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="text-xs font-bold text-slate-300">Retention Progress Bar</span>
+                  <span className="text-xs font-bold text-slate-300 flex items-center">
+                    <span>Retention Progress Bar</span>
+                    {!isPro && <ProBadge />}
+                  </span>
                 </div>
                 <label className="relative inline-flex items-center cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={progressBar?.enabled ?? false}
-                    onChange={e => onChangeProgressBar?.({ enabled: e.target.checked })}
+                    checked={isPro && (progressBar?.enabled ?? false)}
+                    onChange={e => {
+                      if (!requireProOrPrompt('The Retention Progress Bar is a CapSnap Pro feature.')) return;
+                      onChangeProgressBar?.({ enabled: e.target.checked });
+                    }}
                     className="sr-only peer"
                   />
                   <div className="w-8 h-4 bg-slate-800 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3 after:w-3.5 after:transition-all peer-checked:bg-amber-500"></div>
                 </label>
               </div>
 
-              {progressBar?.enabled && (
+              {isPro && progressBar?.enabled && (
                 <div className="space-y-2.5 pt-1 border-t border-slate-800/80">
                   {/* Position Toggle */}
                   <div className="flex items-center justify-between text-[11px] font-semibold text-slate-300">

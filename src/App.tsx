@@ -885,73 +885,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Mobile Navigation Tabs Header (< lg screens) */}
-      <div className="lg:hidden bg-slate-900/95 border-b border-slate-800/80 px-3 py-2 sticky top-[53px] z-30 backdrop-blur-md">
-        <div className="flex items-center justify-between gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
-          <button
-            onClick={() => setMobileTab('preview')}
-            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
-              mobileTab === 'preview'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Video className="w-3.5 h-3.5" />
-            <span>Preview</span>
-          </button>
-
-          <button
-            onClick={() => setMobileTab('style')}
-            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
-              mobileTab === 'style'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Palette className="w-3.5 h-3.5" />
-            <span>Styles</span>
-          </button>
-
-          <button
-            onClick={() => setMobileTab('timeline')}
-            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
-              mobileTab === 'timeline'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Sliders className="w-3.5 h-3.5" />
-            <span>Timeline</span>
-          </button>
-
-          <button
-            onClick={() => {
-              setMobileTab('captions');
-              setIsSubtitleModalOpen(true);
-            }}
-            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
-              mobileTab === 'captions'
-                ? 'bg-amber-500 text-slate-950 shadow-md'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <FileText className="w-3.5 h-3.5" />
-            <span>Captions</span>
-            {blocks.length > 0 && (
-              <span
-                className={`text-[10px] px-1 rounded-full ${
-                  mobileTab === 'captions'
-                    ? 'bg-slate-950 text-amber-300'
-                    : 'bg-slate-800 text-amber-400'
-                }`}
-              >
-                {blocks.length}
-              </span>
-            )}
-          </button>
-        </div>
-      </div>
-
       {/* Main Studio Workspace */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 pb-24 lg:pb-6">
         {/* Left Column: Canvas Preview Player (7 cols) */}
@@ -1042,6 +975,8 @@ export default function App() {
             onClearHighlights={handleClearHighlights}
             videoRef={videoRef}
             onSeek={handleSeek}
+            isPro={isPro}
+            onRequestUpgrade={handleRequestUpgrade}
           />
         </div>
 

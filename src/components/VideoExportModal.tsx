@@ -18,6 +18,7 @@ import { exportVideoOffline, getTargetDimensions } from '../utils/canvasRenderer
 // CapSnap Pro. Keep this in sync with the copy in UpgradeModal.tsx.
 const PRO_RESOLUTIONS: ExportResolution[] = ['4k', '1080p'];
 const PRO_FORMATS: ExportFormat[] = ['mov', 'mkv', 'avi', 'ts', 'wav'];
+const PRO_FPS: (24 | 30 | 60)[] = [60];
 const FREE_WATERMARK_TEXT = 'Made with CapSnap';
 
 interface VideoExportModalProps {
@@ -121,11 +122,12 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
     if (!videoRef.current) return;
 
     // Defensive re-check: never let a free-tier export slip through with a
-    // Pro-only resolution/format, even if UI state got there some other way.
+    // Pro-only resolution/format/fps, even if UI state got there some other way.
     const safeResolution: ExportResolution =
       !isPro && PRO_RESOLUTIONS.includes(resolution) ? '720p' : resolution;
     const safeFormat: ExportFormat =
       !isPro && PRO_FORMATS.includes(exportFormat) ? 'mp4' : exportFormat;
+    const safeFps: 24 | 30 | 60 = !isPro && PRO_FPS.includes(fps) ? 30 : fps;
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -151,18 +153,37 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
           showBackgroundPill: true,
         };
 
+    // Defensive clamp: strip Pro-only caption/audio features at export time
+    // regardless of how they ended up enabled in state (imported project
+    // file, a stale saved project from before a Pro downgrade, etc). The
+    // StylePanel UI already prevents free users from turning these on, but
+    // export is the actual product boundary, so it re-checks independently.
+    const effectiveStyle: SubtitleStyle = isPro
+      ? style
+      : { ...style, emojiEnabled: false, autoEmojiKeywords: false, showSpeakerBadge: false };
+    const effectiveProgressBar: ProgressBarSettings | undefined = isPro
+      ? progressBar
+      : progressBar
+        ? { ...progressBar, enabled: false }
+        : progressBar;
+    const effectiveAudioSettings: AudioSettings | undefined = isPro
+      ? audioSettings
+      : audioSettings
+        ? { ...audioSettings, voiceClarity: false, sfxEnabled: false }
+        : audioSettings;
+
     try {
       const blob = await exportVideoOffline({
         video: videoRef.current,
         blocks,
-        style,
+        style: effectiveStyle,
         filter,
         aspectRatio,
         transform,
         watermark: effectiveWatermark,
-        progressBar,
-        audioSettings,
-        fps,
+        progressBar: effectiveProgressBar,
+        audioSettings: effectiveAudioSettings,
+        fps: safeFps,
         format: safeFormat,
         resolution: safeResolution,
         signal: controller.signal,
@@ -374,21 +395,33 @@ export const VideoExportModal: React.FC<VideoExportModalProps> = ({
                         { id: 24, label: '24 FPS', sub: 'Cinematic' },
                         { id: 30, label: '30 FPS', sub: 'Standard' },
                         { id: 60, label: '60 FPS', sub: 'Ultra Smooth' },
-                      ].map(f => (
-                        <button
-                          key={f.id}
-                          type="button"
-                          onClick={() => setFps(f.id as 24 | 30 | 60)}
-                          className={`py-2 rounded-xl text-center transition-all ${
-                            fps === f.id
-                              ? 'bg-amber-500 text-slate-950 font-bold shadow-md ring-2 ring-amber-400/30'
-                              : 'bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/60'
-                          }`}
-                        >
-                          <div className="text-xs font-bold leading-tight">{f.label}</div>
-                          <div className="text-[10px] opacity-75">{f.sub}</div>
-                        </button>
-                      ))}
+                      ].map(f => {
+                        const isLocked = !isPro && PRO_FPS.includes(f.id as 24 | 30 | 60);
+                        return (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => {
+                              if (isLocked) {
+                                onRequestUpgrade?.(`${f.label} export is a CapSnap Pro feature.`);
+                                return;
+                              }
+                              setFps(f.id as 24 | 30 | 60);
+                            }}
+                            className={`py-2 rounded-xl text-center transition-all relative ${
+                              fps === f.id
+                                ? 'bg-amber-500 text-slate-950 font-bold shadow-md ring-2 ring-amber-400/30'
+                                : 'bg-slate-800 border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-700/60'
+                            } ${isLocked ? 'opacity-70' : ''}`}
+                          >
+                            {isLocked && (
+                              <Lock className="w-2.5 h-2.5 text-amber-400 absolute top-1 right-1" />
+                            )}
+                            <div className="text-xs font-bold leading-tight">{f.label}</div>
+                            <div className="text-[10px] opacity-75">{f.sub}</div>
+                          </button>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
