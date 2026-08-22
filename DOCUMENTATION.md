@@ -1,118 +1,123 @@
-# CapSnap (NovaCap Studio) - Complete Documentation
+---
 
-## Table of Contents
-1. [Overview](#overview)
-2. [Project Structure](#project-structure)
-3. [Technical Architecture](#technical-architecture)
-4. [Core Features](#core-features)
-5. [Component Architecture](#component-architecture)
-6. [Hooks System](#hooks-system)
-7. [Utility Functions](#utility-functions)
-8. [API Endpoints](#api-endpoints)
-9. [Data Types](#data-types)
-10. [Setup & Installation](#setup--installation)
-11. [Configuration](#configuration)
-12. [Usage Guide](#usage-guide)
+## Core Features
+
+### Video Upload & Processing
+- Upload video files (MP4, WebM, etc.)
+- Extract audio track for transcription
+- Generate audio waveform visualization
+- Automatic duration detection
+
+### AI-Powered Transcription
+- Google Gemini AI integration
+- Multi-language support
+- Speaker identification
+- Sentiment analysis (positive, negative, excited, dramatic, neutral, curious)
+- Mood detection (hype, happy, dramatic, shock, inspirational, warning, curious, neutral)
+- Word-level timestamps
+- Emoji suggestions
+
+### Subtitle Styling
+- Custom fonts (Google Fonts integration)
+- Font size, color, and weight
+- Background colors and opacity
+- Stroke effects
+- Text transformations (uppercase, capitalize, lowercase, none)
+- 20+ animation effects (pop, bounce, fade, glitch, etc.)
+
+### Kinetic Highlights
+- Smart word highlighting based on sentiment
+- Color overrides for emphasized words
+- Emoji integration
+- Animation timing synchronized with audio
+
+### Platform Optimization
+- Aspect ratio presets (9:16, 1:1, 16:9, 4:5)
+- Platform-specific formatting (TikTok, Instagram, YouTube, Facebook)
+- Safe zone overlays
+- Export presets
+
+### Advanced Editing
+- Timeline-based subtitle editing
+- Word-level timing adjustments
+- Block merging and splitting
+- Undo/redo functionality
+- Keyboard shortcuts
+
+### Audio Enhancement
+- Volume normalization
+- LUFS targeting (default -14)
+- Audio waveform visualization
+- Word-to-audio alignment
+
+### Visual Effects
+- Video filters (brightness, contrast, saturation, blur, sepia, hue rotation)
+- Watermark overlay with custom positioning
+- Progress bar overlay
+- Safe zone indicators
+
+### Project Management
+- Save/load projects to IndexedDB
+- Auto-save functionality to localStorage
+- Project thumbnails
+- Recent projects list
+
+### Export Capabilities
+- Video export with burned-in subtitles (MP4)
+- Multiple quality settings (low, medium, high, ultra)
+- GIF export for social media
+- SRT and WebVTT subtitle file export
 
 ---
 
-## Overview
+## Component Architecture
 
-CapSnap (NovaCap Studio) is a comprehensive web-based video editing application specializing in AI-powered subtitle generation and styling for social media content.
+### App.tsx (Main Component)
+Manages all application state:
+- Video file and URL state
+- Current project state
+- Subtitle blocks with history
+- Style, filter, transform, watermark, progress bar, audio settings
+- UI modals and toast messages
 
-### Key Value Propositions
-- AI-Powered Transcription using Google Gemini AI
-- Kinetic Subtitles with animations and highlighting
-- Multi-Platform Support (TikTok, Instagram, YouTube)
-- Real-time Preview with video playback
-- Advanced Styling with custom fonts and colors
-- Audio Waveform Analysis for precise timing
-- Project Management with auto-save
-- Offline Capabilities as fallback
+Key Functions:
+- handleVideoUpload() - Process uploaded video files
+- handleAiTranscribe() - Re-run AI transcription
+- handleSaveCurrentProject() - Save project state
+- handleClearAll() - Reset the canvas
+- handleLoadDemo() - Load a demo video
 
-### Target Users
-- Social media content creators
-- Video editors and producers
-- Marketing teams
-- Educators and trainers
-- Podcasters
+### VideoPlayerCanvas.tsx
+Renders video with overlay elements:
+- Video element with controls
+- Canvas overlay for subtitles
+- Safe zone indicators
+- Watermark overlay
+- Progress bar overlay
+- Real-time subtitle rendering
 
----
+### StylePanel.tsx
+Styling controls for subtitles:
+- Font selection (Google Fonts)
+- Font size and color
+- Background styling
+- Animation effects
+- Text transformations
+- Style presets
 
-## Project Structure
+### TimelineEditor.tsx
+Timeline-based subtitle editing:
+- Visual timeline with blocks
+- Drag-and-drop editing
+- Block resizing
+- Word-level editing
+- Waveform visualization
+- Zoom and scroll
 
-CapSnap/
-- src/
-  - App.tsx (Main application)
-  - main.tsx (Entry point)
-  - index.css (Global styles)
-  - components/ (React components)
-    - Header.tsx
-    - VideoPlayerCanvas.tsx
-    - StylePanel.tsx
-    - TimelineEditor.tsx
-    - SubtitleManager.tsx
-    - VideoExportModal.tsx
-    - ProjectManagerModal.tsx
-    - ClearCanvasModal.tsx
-    - KeyboardShortcutsModal.tsx
-    - UpgradeModal.tsx
-    - GoogleFontPicker.tsx
-  - hooks/ (Custom hooks)
-    - useSubtitleHistory.ts
-    - useAutoSaveSubtitles.ts
-    - useProStatus.ts
-    - useAiUsage.ts
-    - useAudioNormalizer.ts
-  - utils/ (Utility functions)
-    - audioAnalyzer.ts
-    - aiTranscriber.ts
-    - speechTranscriber.ts
-    - srtParser.ts
-    - smartHighlighter.ts
-    - presetThemes.ts
-    - googleFonts.ts
-    - canvasRenderer.ts
-    - projectStorage.ts
-    - sampleVideoGenerator.ts
-    - emojiMap.ts
-    - gifEncoder.ts
-    - wavEncoder.ts
-    - sfxSynthesizer.ts
-    - subjectDetector.ts
-    - cropKeyframes.ts
-  - types.ts (TypeScript types)
-- server.ts (Express server)
-- package.json
-- tsconfig.json
-- vite.config.ts
-- index.html
-- .env.example
-- metadata.json
-
----
-
-## Technical Architecture
-
-### Frontend Stack
-- React 19 with TypeScript
-- Vite 6 (build tool)
-- Tailwind CSS v4 (styling)
-- Lucide React (icons)
-- Motion (animations)
-
-### Backend Stack
-- Express.js (server)
-- Google GenAI SDK (AI integration)
-- Web Audio API (audio processing)
-- Canvas API (video rendering)
-
-### Architecture Pattern
-- Component-based architecture
-- Smart vs Dumb components
-- Custom Hooks for reusable logic
-- Utility Layer for pure functions
-- Server Layer for API endpoints
-
-### Data Flow
-User Interaction -> React Components -> State Updates -> Utility Functions -> API Calls -> Server -> AI Processing -> Response -> State Updates -> UI Render
+### SubtitleManager.tsx
+Manages subtitle blocks:
+- Block list display
+- Block editing
+- Word-level editing
+- Sentiment and mood indicators
+- Emoji selection
