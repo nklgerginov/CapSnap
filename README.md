@@ -1,58 +1,23 @@
-# CapSnap (NovaCap Studio)
+# CapSnap
 
-AI-Powered Kinetic Subtitle Editor for Social Media Videos
-
-CapSnap is a web app that uses Google Gemini AI to transcribe video audio and generate animated subtitles for social media.
+AI-Powered Video Subtitle Editor
 
 ## Screenshot
 
-![CapSnap Screenshot](https://via.placeholder.com/800x600/1a1a2e/ffffff?text=CapSnap+Screenshot)
+![CapSnap](https://via.placeholder.com/800x600/1a1a2e/ffffff?text=CapSnap)
 
 ## Features
 
-- AI transcription with Google Gemini
-- Kinetic subtitles with animations
+- AI transcription
+- Kinetic subtitles
 - Multi-platform support
 - Real-time preview
-- Advanced styling
-- Audio waveform analysis
 
 ## Quick Start
 
-### Prerequisites
-- Node.js 18+
-- Google Gemini API Key
-
-### Installation
-1. git clone https://github.com/nklgerginov/CapSnap.git
-2. cd CapSnap
-3. npm install
-4. cp .env.example .env
-5. Add GEMINI_API_KEY to .env
-6. npm run dev
-7. Open http://localhost:3000
-
-## Usage
-
-1. Upload video
-2. AI transcribes audio
-3. Edit subtitles
-4. Style and export
-
-## Tech Stack
-
-- React 19, TypeScript
-- Vite 6, Tailwind CSS
-- Express.js, Google GenAI
+npm install
+npm run dev
 
 ## Documentation
 
-Complete docs: [DOCUMENTATION.md](./DOCUMENTATION.md)
-
-## License
-
-Proprietary - All rights reserved
-
----
-
-Version 1.0.0 - August 2026
+See DOCUMENTATION.md
