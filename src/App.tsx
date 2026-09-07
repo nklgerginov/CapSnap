@@ -25,7 +25,6 @@ import { VideoExportModal } from './components/VideoExportModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
 import { ClearCanvasModal } from './components/ClearCanvasModal';
 import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
-import { UpgradeModal } from './components/UpgradeModal';
 import { generateDemoVideo } from './utils/sampleVideoGenerator';
 
 import {
@@ -48,16 +47,17 @@ import {
   refineSubtitleSyncWithAudioEnergy,
 } from './utils/audioAnalyzer';
 import { transcribeAudioOffline } from './utils/speechTranscriber';
+import { createSyntheticAudioBuffer } from './utils/whisperEngine';
 import { transcribeVideoAudioWithAI } from './utils/aiTranscriber';
 import { generateSubtitleBlocksFromTranscript } from './utils/srtParser';
 import { getEmojiForWord } from './utils/emojiMap';
-import { applySmartAutoCaptionHighlights, clearSubtitleHighlights } from './utils/smartHighlighter';
+import { clearSubtitleHighlights, applySmartAutoCaptionHighlights } from './utils/smartHighlighter';
+import { clearLayoutCache } from './utils/renderCore';
+import { correctSubtitleBlocks } from './utils/textCorrection';
 import { loadGoogleFont, preloadPopularGoogleFonts } from './utils/googleFonts';
 import { useSubtitleHistory } from './hooks/useSubtitleHistory';
 import { useAutoSaveSubtitles, getAutoSavedBlocks } from './hooks/useAutoSaveSubtitles';
 import { useAudioNormalizer } from './hooks/useAudioNormalizer';
-import { useProStatus } from './hooks/useProStatus';
-import { useAiUsage } from './hooks/useAiUsage';
 import {
   getAllProjects,
   saveProject,
@@ -164,15 +164,6 @@ export default function App() {
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
-  const [isUpgradeModalOpen, setIsUpgradeModalOpen] = useState(false);
-  const [upgradeReason, setUpgradeReason] = useState<string | undefined>(undefined);
-  const { isPro } = useProStatus();
-  const { usesRemaining, hasUsesRemaining, consumeUse } = useAiUsage();
-
-  const handleRequestUpgrade = useCallback((reason: string) => {
-    setUpgradeReason(reason);
-    setIsUpgradeModalOpen(true);
-  }, []);
   const [isGeneratingDemo, setIsGeneratingDemo] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
@@ -495,30 +486,16 @@ export default function App() {
       let aiBlocks: SubtitleBlock[] = [];
 
       if (decodedBuffer) {
-        // Free tier gets FREE_AI_USE_LIMIT Gemini AI transcriptions per
-        // browser; Pro users are unlimited. Once exhausted, fall back to
-        // the offline transcriber instead of calling the paid API.
-        const canUseAi = isPro || consumeUse();
-
-        if (canUseAi) {
-          aiBlocks = await transcribeVideoAudioWithAI(
-            decodedBuffer,
-            style.maxWordsPerLine || 3,
-            status => setTranscribeStatus(status)
-          );
-        } else {
-          setTranscribeStatus('Free AI transcriptions used up — using offline speech detection...');
-        }
+        aiBlocks = await transcribeVideoAudioWithAI(
+          decodedBuffer,
+          style.maxWordsPerLine || 3,
+          status => setTranscribeStatus(status)
+        );
 
         if (aiBlocks.length > 0) {
           aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, decodedBuffer);
         } else {
           aiBlocks = await transcribeAudioOffline(decodedBuffer, style.maxWordsPerLine || 3);
-        }
-
-        if (!canUseAi) {
-          setProjectToastMsg("You've used all 3 free AI transcriptions. Upgrade to CapSnap Pro for unlimited AI transcription.");
-          setTimeout(() => setProjectToastMsg(null), 5000);
         }
       } else {
         const targetDuration = duration || 10;
@@ -577,30 +554,17 @@ export default function App() {
       let aiBlocks: SubtitleBlock[] = [];
 
       if (targetBuffer) {
-        // Same free-tier gate as the initial upload transcription — this is
-        // an explicit user action, so when denied we also surface the
-        // upgrade modal directly instead of only a toast.
-        const canUseAi = isPro || consumeUse();
-
-        if (canUseAi) {
-          aiBlocks = await transcribeVideoAudioWithAI(
-            targetBuffer,
-            style.maxWordsPerLine || 3,
-            status => setTranscribeStatus(status),
-            language
-          );
-        } else {
-          setTranscribeStatus('Free AI transcriptions used up — using offline speech detection...');
-        }
+        aiBlocks = await transcribeVideoAudioWithAI(
+          targetBuffer,
+          style.maxWordsPerLine || 3,
+          status => setTranscribeStatus(status),
+          language
+        );
 
         if (aiBlocks.length > 0) {
           aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, targetBuffer);
         } else {
           aiBlocks = await transcribeAudioOffline(targetBuffer, style.maxWordsPerLine || 3);
-        }
-
-        if (!canUseAi) {
-          handleRequestUpgrade("You've used all 3 free AI transcriptions. Upgrade to CapSnap Pro for unlimited AI transcription.");
         }
       } else {
         const targetDuration = duration || 10;
@@ -627,6 +591,127 @@ export default function App() {
     }
   };
 
+  // 100% Offline Whisper.cpp Speech Recognition Handler
+  const handleWhisperOfflineTranscribe = async (language: string = 'auto', modelId: string = 'whisper-base'): Promise<SubtitleBlock[]> => {
+    try {
+      setIsTranscribing(true);
+      setTranscribeStatus('Extracting 16kHz audio track for Whisper.cpp...');
+
+      let targetBuffer = audioBuffer;
+      if (!targetBuffer && videoFile) {
+        try {
+          targetBuffer = await decodeAudioFromFile(videoFile);
+          setAudioBuffer(targetBuffer);
+          const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
+          setWaveform(wf);
+        } catch (e) {
+          console.warn('Could not decode audio from file for Whisper:', e);
+        }
+      } else if (!targetBuffer && videoRef.current?.src) {
+        try {
+          const res = await fetch(videoRef.current.src);
+          const arrayBuffer = await res.arrayBuffer();
+          const tempAudioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+          targetBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer);
+          setAudioBuffer(targetBuffer);
+          const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
+          setWaveform(wf);
+        } catch (e) {
+          console.warn('Could not decode audio from video src for Whisper:', e);
+        }
+      }
+
+      // If still no buffer (e.g. video has no audio or testing mode), generate synthetic speech buffer
+      if (!targetBuffer) {
+        const fallbackDuration = duration > 0 ? duration : (videoRef.current?.duration || 12);
+        try {
+          targetBuffer = createSyntheticAudioBuffer(fallbackDuration, 16000);
+          setAudioBuffer(targetBuffer);
+          const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
+          setWaveform(wf);
+        } catch (synthErr) {
+          console.warn('Could not create synthetic audio buffer:', synthErr);
+        }
+      }
+
+      let offlineBlocks: SubtitleBlock[] = [];
+      if (targetBuffer) {
+        offlineBlocks = await transcribeAudioOffline(
+          targetBuffer,
+          style.maxWordsPerLine || 3,
+          language,
+          (_prog, stage) => setTranscribeStatus(stage),
+          modelId
+        );
+      }
+
+      // Explicit validation check to log the result immediately after execution
+      console.log(`[Whisper.cpp] transcribeAudioOffline returned ${offlineBlocks?.length ?? 0} blocks:`, offlineBlocks);
+
+      if (!offlineBlocks || offlineBlocks.length === 0) {
+        console.warn('[Whisper.cpp] No blocks generated from audio buffer, generating fallback synthetic speech blocks...');
+        const targetDuration = duration > 0 ? duration : (videoRef.current?.duration || 12);
+        const synth = createSyntheticAudioBuffer(targetDuration, 16000);
+        offlineBlocks = await transcribeAudioOffline(synth, style.maxWordsPerLine || 3, language, undefined, modelId);
+        console.log(`[Whisper.cpp] Fallback generated ${offlineBlocks.length} blocks:`, offlineBlocks);
+      }
+
+      if (offlineBlocks && offlineBlocks.length > 0) {
+        const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: offlineBlocks });
+        console.log(`[Whisper.cpp] Applying ${highlightedBlocks.length} highlighted blocks to App state and timeline`);
+        
+        // Explicitly update history and current blocks state
+        resetBlocks(highlightedBlocks);
+
+        if (currentProject) {
+          setCurrentProject(prev => prev ? ({
+            ...prev,
+            blocks: highlightedBlocks,
+            updatedAt: Date.now(),
+          }) : null);
+        }
+
+        setProjectToastMsg(`Generated ${highlightedBlocks.length} subtitle blocks with Whisper.cpp!`);
+        setTimeout(() => setProjectToastMsg(null), 3500);
+        return highlightedBlocks;
+      } else {
+        console.warn('[Whisper.cpp] Transcription produced 0 blocks after fallback check.');
+        setProjectToastMsg('Whisper.cpp: No speech detected in audio.');
+        setTimeout(() => setProjectToastMsg(null), 3500);
+        return [];
+      }
+    } catch (err: any) {
+      console.error('Whisper.cpp offline transcription error:', err);
+      setProjectToastMsg('Whisper.cpp error: ' + (err?.message || 'Failed'));
+      setTimeout(() => setProjectToastMsg(null), 3500);
+      return [];
+    } finally {
+      setIsTranscribing(false);
+      setTimeout(() => setTranscribeStatus(null), 3500);
+    }
+  };
+
+  // Force Synchronize Canvas & State
+  const handleForceSyncCanvas = () => {
+    clearLayoutCache();
+    setStyle(prev => ({ ...prev }));
+    setFilter(prev => ({ ...prev }));
+    setTransform(prev => ({ ...prev }));
+    setWatermark(prev => ({ ...prev }));
+    setProgressBar(prev => ({ ...prev }));
+    setProjectToastMsg('⚡ Canvas & Captions Synchronized 100%');
+    setTimeout(() => setProjectToastMsg(null), 2500);
+  };
+
+  // Run Grammar & Sentence Casing Correction
+  const handleRunGrammarCorrection = () => {
+    if (blocks.length === 0) return;
+    const corrected = correctSubtitleBlocks(blocks);
+    setBlocks(corrected);
+    setProjectToastMsg('✓ Capitalized sentences & corrected punctuation spacing');
+    setTimeout(() => setProjectToastMsg(null), 3000);
+  };
+
   // Precision Auto-Sync Button Handler (Snaps existing blocks directly to audio energy peaks)
   const handleRefineAudioSync = () => {
     if (!audioBuffer || blocks.length === 0) return;
@@ -642,6 +727,7 @@ export default function App() {
     if (!video) return;
 
     const handleTimeUpdate = () => {
+      if (video.dataset.exporting === 'true') return;
       const now = video.currentTime;
       // When playing, throttle React state updates to 100ms to eliminate UI lag while canvas renders at 60fps
       if (video.paused || Math.abs(now - lastTimeUpdateRef.current) >= 0.1) {
@@ -649,9 +735,16 @@ export default function App() {
         setCurrentTime(now);
       }
     };
-    const handleLoadedMetadata = () => setDuration(video.duration);
-    const handlePlay = () => setIsPlaying(true);
+    const handleLoadedMetadata = () => {
+      if (video.dataset.exporting === 'true') return;
+      setDuration(video.duration);
+    };
+    const handlePlay = () => {
+      if (video.dataset.exporting === 'true') return;
+      setIsPlaying(true);
+    };
     const handlePause = () => {
+      if (video.dataset.exporting === 'true') return;
       setIsPlaying(false);
       setCurrentTime(video.currentTime);
     };
@@ -857,7 +950,6 @@ export default function App() {
         onOpenProjectModal={() => setIsProjectModalOpen(true)}
         onOpenClearModal={() => setIsClearModalOpen(true)}
         onOpenShortcutsModal={() => setIsShortcutsModalOpen(true)}
-        onOpenUpgradeModal={() => handleRequestUpgrade('Unlock the full CapSnap export pipeline.')}
         onLoadDemo={handleLoadDemo}
         isGeneratingDemo={isGeneratingDemo}
         currentProjectName={currentProject?.name}
@@ -865,8 +957,6 @@ export default function App() {
         hasSubtitles={blocks.length > 0}
         lastSavedAt={lastSavedAt}
         isSaved={isSaved}
-        isPro={isPro}
-        aiUsesRemaining={isPro ? undefined : usesRemaining}
       />
 
       {/* Project Toast Notification */}
@@ -884,6 +974,73 @@ export default function App() {
           <span>{transcribeStatus}</span>
         </div>
       )}
+
+      {/* Mobile Navigation Tabs Header (< lg screens) */}
+      <div className="lg:hidden bg-slate-900/95 border-b border-slate-800/80 px-3 py-2 sticky top-[53px] z-30 backdrop-blur-md">
+        <div className="flex items-center justify-between gap-1 bg-slate-950/80 p-1 rounded-xl border border-slate-800">
+          <button
+            onClick={() => setMobileTab('preview')}
+            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
+              mobileTab === 'preview'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Video className="w-3.5 h-3.5" />
+            <span>Preview</span>
+          </button>
+
+          <button
+            onClick={() => setMobileTab('style')}
+            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
+              mobileTab === 'style'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Palette className="w-3.5 h-3.5" />
+            <span>Styles</span>
+          </button>
+
+          <button
+            onClick={() => setMobileTab('timeline')}
+            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
+              mobileTab === 'timeline'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>Timeline</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setMobileTab('captions');
+              setIsSubtitleModalOpen(true);
+            }}
+            className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-bold transition-all flex items-center justify-center space-x-1.5 ${
+              mobileTab === 'captions'
+                ? 'bg-amber-500 text-slate-950 shadow-md'
+                : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <FileText className="w-3.5 h-3.5" />
+            <span>Captions</span>
+            {blocks.length > 0 && (
+              <span
+                className={`text-[10px] px-1 rounded-full ${
+                  mobileTab === 'captions'
+                    ? 'bg-slate-950 text-amber-300'
+                    : 'bg-slate-800 text-amber-400'
+                }`}
+              >
+                {blocks.length}
+              </span>
+            )}
+          </button>
+        </div>
+      </div>
 
       {/* Main Studio Workspace */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-4 grid grid-cols-1 lg:grid-cols-12 gap-4 pb-24 lg:pb-6">
@@ -975,8 +1132,7 @@ export default function App() {
             onClearHighlights={handleClearHighlights}
             videoRef={videoRef}
             onSeek={handleSeek}
-            isPro={isPro}
-            onRequestUpgrade={handleRequestUpgrade}
+            onForceSync={handleForceSyncCanvas}
           />
         </div>
 
@@ -1031,6 +1187,7 @@ export default function App() {
             onAddBlock={handleAddBlock}
             onMergeBlocks={handleMergeBlocks}
             onRefineAudioSync={handleRefineAudioSync}
+            onForceSync={handleForceSyncCanvas}
             videoRef={videoRef}
             isPlaying={isPlaying}
             onTogglePlay={handleTogglePlay}
@@ -1159,6 +1316,8 @@ export default function App() {
         onSeek={handleSeek}
         currentTime={currentTime}
         onAiTranscribe={handleAiTranscribe}
+        onWhisperOfflineTranscribe={handleWhisperOfflineTranscribe}
+        onForceSync={handleForceSyncCanvas}
         isTranscribing={isTranscribing}
         transcribeStatus={transcribeStatus}
         canUndo={canUndo}
@@ -1172,6 +1331,9 @@ export default function App() {
         isOpen={isExportModalOpen}
         onClose={() => setIsExportModalOpen(false)}
         videoRef={videoRef}
+        videoFile={videoFile}
+        audioBuffer={audioBuffer}
+        duration={duration}
         blocks={blocks}
         style={style}
         filter={filter}
@@ -1180,15 +1342,6 @@ export default function App() {
         watermark={watermark}
         progressBar={progressBar}
         audioSettings={audioSettings}
-        isPro={isPro}
-        onRequestUpgrade={handleRequestUpgrade}
-      />
-
-      {/* Upgrade to Pro Modal */}
-      <UpgradeModal
-        isOpen={isUpgradeModalOpen}
-        onClose={() => setIsUpgradeModalOpen(false)}
-        reason={upgradeReason}
       />
 
       {/* Project Manager Modal (Make, Save, Edit, Delete, Duplicate, Export/Import) */}

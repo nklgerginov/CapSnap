@@ -29,6 +29,7 @@ import {
   Info,
   Undo2,
   Redo2,
+  Wand2,
 } from 'lucide-react';
 import { SubtitleBlock, VideoTransformSettings } from '../types';
 import { computeAudioEnergyProfile, AudioEnergyProfile } from '../utils/audioAnalyzer';
@@ -50,6 +51,7 @@ interface TimelineEditorProps {
   transform?: VideoTransformSettings;
   onChangeTransform?: (updated: Partial<VideoTransformSettings>) => void;
   onRefineAudioSync?: () => void;
+  onForceSync?: () => void;
   videoRef?: React.RefObject<HTMLVideoElement | null>;
   isPlaying?: boolean;
   onTogglePlay?: () => void;
@@ -99,6 +101,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
   onMergeBlocks,
   transform,
   onRefineAudioSync,
+  onForceSync,
   videoRef,
   isPlaying,
   onTogglePlay,
@@ -119,6 +122,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
   const [snapGuideX, setSnapGuideX] = useState<number | null>(null);
   const [showShortcutsModal, setShowShortcutsModal] = useState<boolean>(false);
   const [hoveredBlockId, setHoveredBlockId] = useState<string | null>(null);
+  const [hasSyncedRecently, setHasSyncedRecently] = useState<boolean>(false);
 
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
@@ -935,15 +939,25 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
             )}
           </div>
 
-          {/* Auto-Snap Sync Trigger */}
-          {onRefineAudioSync && (
+          {/* Unified Auto-Snap & Canvas Sync */}
+          {(onRefineAudioSync || onForceSync) && (
             <button
-              onClick={onRefineAudioSync}
-              className="px-2.5 py-1 rounded-xl bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950 font-extrabold text-[10px] uppercase tracking-wider shadow-md flex items-center space-x-1 transition-all active:scale-95"
-              title="Automatically snap subtitle blocks & words to exact audio speech energy peaks"
+              onClick={() => {
+                if (onRefineAudioSync) onRefineAudioSync();
+                if (onForceSync) onForceSync();
+                setHasSyncedRecently(true);
+                setTimeout(() => setHasSyncedRecently(false), 2000);
+              }}
+              disabled={blocks.length === 0}
+              className={`px-2.5 py-1 rounded-xl text-[10px] uppercase font-extrabold tracking-wider shadow-md flex items-center space-x-1 transition-all active:scale-95 disabled:opacity-40 ${
+                hasSyncedRecently
+                  ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                  : 'bg-gradient-to-r from-amber-500 to-yellow-400 hover:from-amber-400 hover:to-yellow-300 text-slate-950'
+              }`}
+              title="Snap subtitles to audio peaks and synchronize with video canvas"
             >
-              <Zap className="w-3 h-3 fill-slate-950 text-slate-950" />
-              <span>Auto-Snap Sync</span>
+              <Zap className={`w-3 h-3 ${hasSyncedRecently ? 'text-emerald-400' : 'fill-slate-950 text-slate-950'}`} />
+              <span>{hasSyncedRecently ? 'Synced!' : 'Auto-Snap & Sync'}</span>
             </button>
           )}
         </div>

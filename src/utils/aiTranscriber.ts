@@ -2,6 +2,7 @@ import { SubtitleBlock } from '../types';
 import { transcribeAudioOffline } from './speechTranscriber';
 import { applySmartAutoCaptionHighlights, detectBlockMoodAndEmoji } from './smartHighlighter';
 import { getEmojiForWord } from './emojiMap';
+import { correctSubtitleBlocks } from './textCorrection';
 
 /**
  * Converts an AudioBuffer to a WAV Base64 string for Gemini audio processing
@@ -138,24 +139,35 @@ export async function transcribeVideoAudioWithAI(
       });
 
       // Apply smart highlight color synergy
-      return applySmartAutoCaptionHighlights({
+      const highlighted = applySmartAutoCaptionHighlights({
         blocks: processed,
         highlightColor: '#FFE600',
         forceAtLeastOnePerBlock: true,
       });
+
+      // Guarantee proper sentence capitalization and clean punctuation
+      const { updatedBlocks } = correctSubtitleBlocks(highlighted);
+      return updatedBlocks;
     }
 
     throw new Error('No AI transcription blocks returned');
   } catch (error: any) {
-    console.warn('Gemini AI transcription fallback to local audio analyzer:', error);
+    console.warn('Gemini AI transcription fallback to Whisper.cpp offline engine:', error);
     if (onStatusChange) {
       const msg = error?.message?.includes('high demand') || error?.message?.includes('503')
-        ? 'AI service busy — using built-in sentiment analyzer & audio sync...'
-        : 'Using built-in sentiment analyzer & audio speech sync...';
+        ? 'AI service busy — transcribing with local Whisper.cpp engine...'
+        : 'Transcribing with local Whisper.cpp offline engine...';
       onStatusChange(msg);
     }
     
-    const offlineBlocks = await transcribeAudioOffline(audioBuffer, wordsPerBlock);
+    const offlineBlocks = await transcribeAudioOffline(
+      audioBuffer,
+      wordsPerBlock,
+      language || 'auto',
+      (_prog, stage) => {
+        if (onStatusChange) onStatusChange(stage);
+      }
+    );
     
     // Enrich offline blocks with sentiment analysis and mood emoji suggestions
     const sentimentEnriched = offlineBlocks.map(block => {
@@ -168,10 +180,13 @@ export async function transcribeVideoAudioWithAI(
       };
     });
 
-    return applySmartAutoCaptionHighlights({
+    const highlighted = applySmartAutoCaptionHighlights({
       blocks: sentimentEnriched,
       highlightColor: '#FFE600',
       forceAtLeastOnePerBlock: true,
     });
+
+    const { updatedBlocks } = correctSubtitleBlocks(highlighted);
+    return updatedBlocks;
   }
 }

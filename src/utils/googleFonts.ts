@@ -88,6 +88,9 @@ const loadedFonts = new Set<string>();
  * so that canvas rendering and DOM previews support it immediately.
  */
 export function loadGoogleFont(fontName: string): Promise<boolean> {
+  if (typeof document === 'undefined') {
+    return Promise.resolve(false);
+  }
   if (!fontName || fontName.toLowerCase() === 'impact' || fontName.toLowerCase() === 'system-ui') {
     return Promise.resolve(true);
   }

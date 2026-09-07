@@ -34,7 +34,10 @@ export function useSubtitleHistory(initialBlocks: SubtitleBlock[] = []) {
           // For continuous operations like dragging/resizing, capture initial state when continuous motion starts
           if (!isBatchingRef.current) {
             isBatchingRef.current = true;
-            setPast(prevPast => [...prevPast.slice(-49), currentBlocks]);
+            const newPast = [...pastRef.current.slice(-49), currentBlocks];
+            pastRef.current = newPast;
+            setPast(newPast);
+            futureRef.current = [];
             setFuture([]);
           }
           if (lastUpdateTimeoutRef.current) clearTimeout(lastUpdateTimeoutRef.current);
@@ -45,11 +48,15 @@ export function useSubtitleHistory(initialBlocks: SubtitleBlock[] = []) {
           // Discrete edit (split, merge, delete, add, update, auto-snap, highlight)
           isBatchingRef.current = false;
           if (lastUpdateTimeoutRef.current) clearTimeout(lastUpdateTimeoutRef.current);
-          setPast(prevPast => [...prevPast.slice(-49), currentBlocks]);
+          const newPast = [...pastRef.current.slice(-49), currentBlocks];
+          pastRef.current = newPast;
+          setPast(newPast);
+          futureRef.current = [];
           setFuture([]);
         }
       }
 
+      presentRef.current = nextBlocks;
       setPresent(nextBlocks);
     },
     []
@@ -59,8 +66,11 @@ export function useSubtitleHistory(initialBlocks: SubtitleBlock[] = []) {
   const resetBlocks = useCallback((newBlocks: SubtitleBlock[]) => {
     if (lastUpdateTimeoutRef.current) clearTimeout(lastUpdateTimeoutRef.current);
     isBatchingRef.current = false;
+    pastRef.current = [];
     setPast([]);
+    presentRef.current = newBlocks;
     setPresent(newBlocks);
+    futureRef.current = [];
     setFuture([]);
   }, []);
 
@@ -72,9 +82,13 @@ export function useSubtitleHistory(initialBlocks: SubtitleBlock[] = []) {
     const newPast = pastRef.current.slice(0, pastRef.current.length - 1);
     const current = presentRef.current;
 
+    pastRef.current = newPast;
     setPast(newPast);
+    presentRef.current = previous;
     setPresent(previous);
-    setFuture(prevFuture => [current, ...prevFuture]);
+    const newFuture = [current, ...futureRef.current];
+    futureRef.current = newFuture;
+    setFuture(newFuture);
   }, []);
 
   // Redo operation
@@ -85,8 +99,12 @@ export function useSubtitleHistory(initialBlocks: SubtitleBlock[] = []) {
     const newFuture = futureRef.current.slice(1);
     const current = presentRef.current;
 
-    setPast(prevPast => [...prevPast, current]);
+    const newPast = [...pastRef.current, current];
+    pastRef.current = newPast;
+    setPast(newPast);
+    presentRef.current = next;
     setPresent(next);
+    futureRef.current = newFuture;
     setFuture(newFuture);
   }, []);
 

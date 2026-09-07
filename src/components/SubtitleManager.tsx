@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   FileText,
   Wand2,
@@ -27,6 +27,11 @@ import {
   UserCheck,
   Languages,
   Loader2,
+  ShieldCheck,
+  Cpu,
+  CheckCircle2,
+  Plus,
+  GripVertical,
 } from 'lucide-react';
 import { SubtitleBlock, SubtitleWord } from '../types';
 import {
@@ -43,6 +48,14 @@ import {
   clearSubtitleHighlights,
   HIGHLIGHT_COLOR_PRESETS,
 } from '../utils/smartHighlighter';
+import { correctSubtitleBlocks, correctRawSubtitleText } from '../utils/textCorrection';
+import {
+  transcribeWithWhisperCpp,
+  SUPPORTED_OFFLINE_LANGUAGES,
+  WHISPER_MODELS,
+  detectHardwareProfile,
+  SystemHardwareProfile,
+} from '../utils/whisperEngine';
 
 export const SPEAKER_PRESETS = [
   { id: 'spk1', name: 'Speaker 1', color: '#10B981', label: 'Spk 1' },
@@ -52,21 +65,10 @@ export const SPEAKER_PRESETS = [
   { id: 'narrator', name: 'Narrator', color: '#F43F5E', label: 'Narrator' },
 ];
 
-export const SUPPORTED_LANGUAGES = [
-  { code: 'auto', label: 'Auto-Detect (Global)' },
-  { code: 'en', label: 'English (US/UK)' },
-  { code: 'es', label: 'Spanish (Español)' },
-  { code: 'fr', label: 'French (Français)' },
-  { code: 'de', label: 'German (Deutsch)' },
-  { code: 'it', label: 'Italian (Italiano)' },
-  { code: 'pt', label: 'Portuguese (Português)' },
-  { code: 'ja', label: 'Japanese (日本語)' },
-  { code: 'zh', label: 'Chinese (中文)' },
-  { code: 'hi', label: 'Hindi (हिन्दी)' },
-  { code: 'ar', label: 'Arabic (العربية)' },
-  { code: 'ru', label: 'Russian (Русский)' },
-  { code: 'ko', label: 'Korean (한국어)' },
-];
+export const SUPPORTED_LANGUAGES = SUPPORTED_OFFLINE_LANGUAGES.map(lang => ({
+  code: lang.code,
+  label: `${lang.flag} ${lang.name} (${lang.nativeName})`,
+}));
 
 export function regroupSubtitleWords({
   blocks,
@@ -134,6 +136,8 @@ interface SubtitleManagerProps {
   onSeek: (time: number) => void;
   currentTime: number;
   onAiTranscribe?: (language: string) => Promise<void>;
+  onWhisperOfflineTranscribe?: (language: string, modelId?: string) => Promise<SubtitleBlock[] | void>;
+  onForceSync?: () => void;
   isTranscribing?: boolean;
   transcribeStatus?: string | null;
   canUndo?: boolean;
@@ -153,6 +157,8 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
   onRefineAudioSync,
   onSeek,
   onAiTranscribe,
+  onWhisperOfflineTranscribe,
+  onForceSync,
   isTranscribing = false,
   transcribeStatus,
   canUndo = false,
@@ -166,6 +172,15 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
   const [editingWordId, setEditingWordId] = useState<string | null>(null);
   const [editingWordText, setEditingWordText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
+
+  // Manual Word Addition State
+  const [addingWordBlockId, setAddingWordBlockId] = useState<string | null>(null);
+  const [addingWordIndex, setAddingWordIndex] = useState<number | null>(null); // null = append to end
+  const [newWordInput, setNewWordInput] = useState('');
+
+  // Drag & Drop Word Chips State
+  const [draggedWordInfo, setDraggedWordInfo] = useState<{ blockId: string; wordId: string; index: number } | null>(null);
+  const [dragOverWordInfo, setDragOverWordInfo] = useState<{ blockId: string; wordId: string; index: number } | null>(null);
 
   // Global Find & Replace State
   const [isFindReplaceOpen, setIsFindReplaceOpen] = useState(false);
@@ -182,12 +197,99 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
   const [selectedHighlightColor, setSelectedHighlightColor] = useState('#FFE600');
   const [selectedLanguage, setSelectedLanguage] = useState('auto');
 
+  // Whisper.cpp Model & Hardware Detection State
+  const [selectedWhisperModel, setSelectedWhisperModel] = useState<string>('whisper-base');
+  const [hardwareProfile, setHardwareProfile] = useState<SystemHardwareProfile | null>(null);
+
+  useEffect(() => {
+    detectHardwareProfile().then(profile => {
+      setHardwareProfile(profile);
+      if (profile?.recommendedModelId) {
+        setSelectedWhisperModel(profile.recommendedModelId);
+      }
+    });
+  }, []);
+
+  // Text Correction & Sync State
+  const [correctionFeedback, setCorrectionFeedback] = useState<string | null>(null);
+  const [hasSyncedRecently, setHasSyncedRecently] = useState(false);
+
+  // Whisper.cpp Offline State
+  const [isWhisperRunning, setIsWhisperRunning] = useState(false);
+  const [whisperProgress, setWhisperProgress] = useState(0);
+  const [whisperStatus, setWhisperStatus] = useState<string | null>(null);
+
   // Trigger AI Transcription
   const handleTriggerAiTranscription = async () => {
     if (onAiTranscribe) {
       await onAiTranscribe(selectedLanguage);
       setActiveTab('editor');
     }
+  };
+
+  // Trigger Local Whisper.cpp Offline Transcription
+  const handleRunWhisperOffline = async () => {
+    try {
+      setIsWhisperRunning(true);
+      setWhisperStatus('Initializing Whisper.cpp engine...');
+      setWhisperProgress(5);
+
+      if (onWhisperOfflineTranscribe) {
+        const generated = await onWhisperOfflineTranscribe(selectedLanguage, selectedWhisperModel);
+        if (generated && generated.length > 0) {
+          onUpdateBlocks(generated);
+        }
+      } else if (audioBuffer) {
+        const generated = await transcribeWithWhisperCpp(audioBuffer, {
+          wordsPerBlock: wordsPerBlockInput,
+          language: selectedLanguage,
+          modelId: selectedWhisperModel,
+          onProgress: (prog, stage) => {
+            setWhisperProgress(prog);
+            setWhisperStatus(stage);
+          },
+        });
+        const highlighted = applySmartAutoCaptionHighlights({
+          blocks: generated,
+          highlightColor: selectedHighlightColor,
+          forceAtLeastOnePerBlock: true,
+        });
+        onUpdateBlocks(highlighted);
+      }
+      setActiveTab('editor');
+    } catch (err: any) {
+      console.error('Whisper.cpp offline transcription error:', err);
+      setWhisperStatus('Whisper error: ' + (err?.message || 'Failed'));
+    } finally {
+      setIsWhisperRunning(false);
+      setTimeout(() => {
+        setWhisperStatus(null);
+        setWhisperProgress(0);
+      }, 3500);
+    }
+  };
+
+  // Smart Grammar & Punctuation Cleanup
+  const handleRunTextCorrection = () => {
+    if (blocks.length === 0) return;
+    const result = correctSubtitleBlocks(blocks);
+    onUpdateBlocks(result.updatedBlocks);
+    onForceSync?.();
+    const { capitalizedCount, punctuationFixedCount, totalWordsModified } = result.stats;
+    if (totalWordsModified > 0 || capitalizedCount > 0 || punctuationFixedCount > 0) {
+      setCorrectionFeedback(`✨ Cleaned ${totalWordsModified} words (${capitalizedCount} capitalized, ${punctuationFixedCount} punctuation fixed)`);
+    } else {
+      setCorrectionFeedback('✓ Captions already clean & properly capitalized');
+    }
+    setTimeout(() => setCorrectionFeedback(null), 4000);
+  };
+
+  // Force Apply & Refresh Canvas
+  const handleForceApplyAndSync = () => {
+    onUpdateBlocks([...blocks]);
+    onForceSync?.();
+    setHasSyncedRecently(true);
+    setTimeout(() => setHasSyncedRecently(false), 2000);
   };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -219,11 +321,13 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
       forceAtLeastOnePerBlock: true,
     });
     onUpdateBlocks(highlighted);
+    onForceSync?.();
   };
 
   const handleClearHighlights = () => {
     const cleared = clearSubtitleHighlights(blocks);
     onUpdateBlocks(cleared);
+    onForceSync?.();
   };
 
   const handleToggleWordHighlight = (blockId: string, wordId: string) => {
@@ -233,16 +337,18 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
         ...b,
         words: b.words.map(w => {
           if (w.id !== wordId) return w;
-          const isCurrentlyHighlighted = !!w.colorOverride;
+          const isSameColor = w.colorOverride?.toLowerCase() === selectedHighlightColor.toLowerCase();
+          const shouldRemove = isSameColor;
           return {
             ...w,
-            isEmphasized: !isCurrentlyHighlighted,
-            colorOverride: isCurrentlyHighlighted ? undefined : selectedHighlightColor,
+            isEmphasized: !shouldRemove,
+            colorOverride: shouldRemove ? undefined : selectedHighlightColor,
           };
         }),
       };
     });
     onUpdateBlocks(updated);
+    onForceSync?.();
   };
 
   const handleShiftBlockTime = (block: SubtitleBlock, deltaSec: number) => {
@@ -264,6 +370,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
           : b
       )
     );
+    onForceSync?.();
   };
 
   // Find & Replace handlers
@@ -292,6 +399,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
 
     if (replaced) {
       onUpdateBlocks(updatedBlocks);
+      onForceSync?.();
     }
   };
 
@@ -309,6 +417,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
     }));
 
     onUpdateBlocks(updatedBlocks);
+    onForceSync?.();
   };
 
   // Speaker Diarization handlers
@@ -331,6 +440,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
           : b
       )
     );
+    onForceSync?.();
   };
 
   const handleSetBlockSpeakerPreset = (blockId: string, speakerName?: string, speakerColor?: string) => {
@@ -345,6 +455,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
           : b
       )
     );
+    onForceSync?.();
   };
 
   const handleAutoDiarizeAlternating = () => {
@@ -357,6 +468,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
       };
     });
     onUpdateBlocks(updated);
+    onForceSync?.();
   };
 
   const handleBatchSetSpeaker = (speakerName: string, speakerColor: string) => {
@@ -366,6 +478,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
       speakerColor: speakerColor,
     }));
     onUpdateBlocks(updated);
+    onForceSync?.();
   };
 
   const handleClearAllSpeakers = () => {
@@ -375,6 +488,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
       speakerColor: undefined,
     }));
     onUpdateBlocks(updated);
+    onForceSync?.();
   };
 
   const handleAutoRegroup = () => {
@@ -385,6 +499,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
       pauseThresholdSec: regroupPauseSec,
     });
     onUpdateBlocks(regrouped);
+    onForceSync?.();
   };
 
   const handleAutoMergeShortBlocks = () => {
@@ -395,6 +510,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
       maxWordsPerMergedBlock: 8,
     });
     onUpdateBlocks(merged);
+    onForceSync?.();
   };
 
   const handleImportFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -411,6 +527,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
             parsed = refineSubtitleSyncWithAudioEnergy(parsed, audioBuffer);
           }
           onUpdateBlocks(parsed);
+          onForceSync?.();
         }
       }
     };
@@ -436,6 +553,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
 
   const handleDeleteBlock = (blockId: string) => {
     onUpdateBlocks(blocks.filter(b => b.id !== blockId));
+    onForceSync?.();
   };
 
   const handleToggleSpeechRecognition = () => {
@@ -499,15 +617,49 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
   };
 
   const handleSaveWordEdit = (blockId: string, wordId: string) => {
+    const trimmed = editingWordText.trim();
+    if (!trimmed) {
+      handleDeleteWord(blockId, wordId);
+      return;
+    }
     const updated = blocks.map(b => {
       if (b.id !== blockId) return b;
       return {
         ...b,
-        words: b.words.map(w => (w.id === wordId ? { ...w, text: editingWordText } : w)),
+        words: b.words.map(w => (w.id === wordId ? { ...w, text: trimmed } : w)),
       };
     });
     onUpdateBlocks(updated);
     setEditingWordId(null);
+    setEditingWordText('');
+    onForceSync?.();
+  };
+
+  const handleDeleteWord = (blockId: string, wordId: string) => {
+    const updatedBlocks: SubtitleBlock[] = [];
+
+    for (const block of blocks) {
+      if (block.id === blockId) {
+        const remainingWords = block.words.filter(w => w.id !== wordId);
+        if (remainingWords.length > 0) {
+          updatedBlocks.push({
+            ...block,
+            start: remainingWords[0].start,
+            end: remainingWords[remainingWords.length - 1].end,
+            words: remainingWords,
+          });
+        }
+      } else {
+        updatedBlocks.push(block);
+      }
+    }
+
+    if (editingWordId === wordId) {
+      setEditingWordId(null);
+      setEditingWordText('');
+    }
+    onUpdateBlocks(updatedBlocks);
+    onForceSync?.();
   };
 
   const handleSplitWordToNewBlock = (blockId: string, wordIndex: number) => {
@@ -541,6 +693,211 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
     ];
 
     onUpdateBlocks(updatedBlocks);
+    onForceSync?.();
+  };
+
+  // Reorder word chips via drag-and-drop
+  const handleDropWord = (targetBlockId: string, targetIndex: number) => {
+    if (!draggedWordInfo) return;
+    const { blockId: sourceBlockId, index: sourceIndex } = draggedWordInfo;
+
+    if (sourceBlockId === targetBlockId && sourceIndex === targetIndex) {
+      setDraggedWordInfo(null);
+      setDragOverWordInfo(null);
+      return;
+    }
+
+    if (sourceBlockId === targetBlockId) {
+      // Reordering within the SAME block
+      const updatedBlocks = blocks.map(block => {
+        if (block.id !== sourceBlockId) return block;
+
+        const words = [...block.words];
+        const [movedWord] = words.splice(sourceIndex, 1);
+        if (!movedWord) return block;
+
+        words.splice(targetIndex, 0, movedWord);
+
+        // Keep timestamps sorted and aligned to the original time slots
+        const originalTimeSlots = block.words.map(w => ({ start: w.start, end: w.end }));
+        const reorderedWords = words.map((w, idx) => ({
+          ...w,
+          start: originalTimeSlots[idx]?.start ?? w.start,
+          end: originalTimeSlots[idx]?.end ?? w.end,
+        }));
+
+        return {
+          ...block,
+          words: reorderedWords,
+        };
+      });
+
+      onUpdateBlocks(updatedBlocks);
+      onForceSync?.();
+    } else {
+      // Reordering across DIFFERENT blocks
+      const sourceBlock = blocks.find(b => b.id === sourceBlockId);
+      const targetBlock = blocks.find(b => b.id === targetBlockId);
+      if (!sourceBlock || !targetBlock) {
+        setDraggedWordInfo(null);
+        setDragOverWordInfo(null);
+        return;
+      }
+
+      const sourceWords = [...sourceBlock.words];
+      const [movedWord] = sourceWords.splice(sourceIndex, 1);
+      if (!movedWord) {
+        setDraggedWordInfo(null);
+        setDragOverWordInfo(null);
+        return;
+      }
+
+      const targetWords = [...targetBlock.words];
+      targetWords.splice(targetIndex, 0, movedWord);
+
+      const targetSpan = Math.max(0.4, targetBlock.end - targetBlock.start);
+      const wordDur = targetSpan / targetWords.length;
+      const reorderedTargetWords = targetWords.map((w, idx) => ({
+        ...w,
+        start: Number((targetBlock.start + idx * wordDur).toFixed(3)),
+        end: Number((targetBlock.start + (idx + 1) * wordDur).toFixed(3)),
+      }));
+
+      const updatedBlocks: SubtitleBlock[] = [];
+      for (const b of blocks) {
+        if (b.id === sourceBlockId) {
+          if (sourceWords.length > 0) {
+            const sSpan = Math.max(0.4, b.end - b.start);
+            const sDur = sSpan / sourceWords.length;
+            updatedBlocks.push({
+              ...b,
+              words: sourceWords.map((w, idx) => ({
+                ...w,
+                start: Number((b.start + idx * sDur).toFixed(3)),
+                end: Number((b.start + (idx + 1) * sDur).toFixed(3)),
+              })),
+            });
+          }
+        } else if (b.id === targetBlockId) {
+          updatedBlocks.push({
+            ...b,
+            words: reorderedTargetWords,
+          });
+        } else {
+          updatedBlocks.push(b);
+        }
+      }
+
+      onUpdateBlocks(updatedBlocks);
+      onForceSync?.();
+    }
+
+    setDraggedWordInfo(null);
+    setDragOverWordInfo(null);
+  };
+
+  // Add new word chip(s) manually to a block
+  const handleConfirmAddWord = (blockId: string, insertIndex: number | null = null) => {
+    const trimmed = newWordInput.trim();
+    if (!trimmed) {
+      setAddingWordBlockId(null);
+      setAddingWordIndex(null);
+      setNewWordInput('');
+      return;
+    }
+
+    const targetBlock = blocks.find(b => b.id === blockId);
+    if (!targetBlock) return;
+
+    // Split by whitespace so user can type one or multiple words at once
+    const rawWords = trimmed.split(/\s+/).filter(Boolean);
+    if (rawWords.length === 0) return;
+
+    const targetIdx = insertIndex !== null ? insertIndex : (addingWordIndex !== null ? addingWordIndex : targetBlock.words.length);
+    const wordsBefore = targetBlock.words.slice(0, targetIdx);
+    const wordsAfter = targetBlock.words.slice(targetIdx);
+
+    // Calculate base start time
+    let currentStart = targetBlock.start;
+    if (wordsBefore.length > 0) {
+      currentStart = wordsBefore[wordsBefore.length - 1].end;
+    }
+
+    const WORD_DURATION = 0.35; // Default word duration in seconds
+    const newWordObjects: SubtitleWord[] = rawWords.map((wordStr, idx) => {
+      const start = Number((currentStart + idx * WORD_DURATION).toFixed(3));
+      const end = Number((start + WORD_DURATION).toFixed(3));
+      return {
+        id: `w_${Date.now()}_${idx}_${Math.random().toString(36).substring(2, 6)}`,
+        text: wordStr,
+        start,
+        end,
+        emoji: getEmojiForWord(wordStr),
+      };
+    });
+
+    // If there are words after, shift their timestamps if new words overlap
+    let updatedWordsAfter = wordsAfter;
+    if (wordsAfter.length > 0 && newWordObjects.length > 0) {
+      const lastNewWordEnd = newWordObjects[newWordObjects.length - 1].end;
+      if (wordsAfter[0].start < lastNewWordEnd) {
+        const delta = Number((lastNewWordEnd - wordsAfter[0].start).toFixed(3));
+        updatedWordsAfter = wordsAfter.map(w => ({
+          ...w,
+          start: Number((w.start + delta).toFixed(3)),
+          end: Number((w.end + delta).toFixed(3)),
+        }));
+      }
+    }
+
+    const allWords = [...wordsBefore, ...newWordObjects, ...updatedWordsAfter];
+    const newBlockStart = allWords.length > 0 ? Math.min(targetBlock.start, allWords[0].start) : targetBlock.start;
+    const newBlockEnd = allWords.length > 0 ? Math.max(targetBlock.end, allWords[allWords.length - 1].end) : targetBlock.end;
+
+    const updatedBlocks = blocks.map(b => {
+      if (b.id !== blockId) return b;
+      return {
+        ...b,
+        start: Number(newBlockStart.toFixed(3)),
+        end: Number(newBlockEnd.toFixed(3)),
+        words: allWords,
+      };
+    });
+
+    onUpdateBlocks(updatedBlocks);
+    setAddingWordBlockId(null);
+    setAddingWordIndex(null);
+    setNewWordInput('');
+    onForceSync?.();
+  };
+
+  // Add an entire new subtitle block manually
+  const handleAddManualBlock = () => {
+    const lastBlock = blocks[blocks.length - 1];
+    const start = lastBlock ? Number((lastBlock.end + 0.1).toFixed(3)) : 0;
+    const end = Number((start + 1.2).toFixed(3));
+    const newBlockId = `block_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
+    const defaultWord: SubtitleWord = {
+      id: `w_${Date.now()}_0_${Math.random().toString(36).substring(2, 6)}`,
+      text: 'New Caption',
+      start,
+      end,
+      emoji: '✨',
+    };
+
+    const newBlock: SubtitleBlock = {
+      id: newBlockId,
+      start,
+      end,
+      words: [defaultWord],
+      mood: 'neutral',
+    };
+
+    const updated = [...blocks, newBlock];
+    onUpdateBlocks(updated);
+    setEditingWordId(defaultWord.id);
+    setEditingWordText(defaultWord.text);
+    onForceSync?.();
   };
 
   return (
@@ -717,30 +1074,45 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
             <div className="space-y-3">
               {/* Highlight Toolbar Bar */}
               <div className="bg-slate-950/80 p-2.5 rounded-xl border border-slate-800 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center space-x-1.5">
+                <div className="flex items-center space-x-2">
                   <span className="text-[11px] font-semibold text-slate-300">Highlight Palette:</span>
-                  <div className="flex items-center space-x-1">
+                  <div className="flex items-center space-x-1.5">
                     {HIGHLIGHT_COLOR_PRESETS.map(preset => (
                       <button
                         key={preset.id}
                         onClick={() => setSelectedHighlightColor(preset.hex)}
                         className={`w-5 h-5 rounded-full transition-transform border ${
-                          selectedHighlightColor === preset.hex
-                            ? 'scale-125 border-white ring-1 ring-amber-400'
-                            : 'border-transparent opacity-80'
+                          selectedHighlightColor.toLowerCase() === preset.hex.toLowerCase()
+                            ? 'scale-125 border-white ring-1 ring-amber-400 shadow-sm'
+                            : 'border-transparent opacity-80 hover:opacity-100'
                         }`}
                         style={{ backgroundColor: preset.hex }}
                         title={preset.name}
                       />
                     ))}
+                    {/* Custom Color Picker */}
+                    <label className="relative cursor-pointer" title="Choose custom highlight color">
+                      <input
+                        type="color"
+                        value={selectedHighlightColor}
+                        onChange={e => setSelectedHighlightColor(e.target.value)}
+                        className="sr-only"
+                      />
+                      <div
+                        className="w-5 h-5 rounded-full border border-slate-600 flex items-center justify-center text-[9px] font-extrabold shadow-sm hover:scale-110 transition-transform"
+                        style={{ backgroundColor: selectedHighlightColor, color: '#000000' }}
+                      >
+                        +
+                      </div>
+                    </label>
                   </div>
                 </div>
 
-                <div className="flex items-center space-x-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   {onAiTranscribe && (
                     <button
                       onClick={handleTriggerAiTranscription}
-                      disabled={isTranscribing}
+                      disabled={isTranscribing || isWhisperRunning}
                       className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold text-[11px] rounded-lg transition-all shadow active:scale-95 disabled:opacity-50 flex items-center space-x-1"
                       title="Transcribe speech with Gemini AI"
                     >
@@ -752,6 +1124,58 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                       <span>{isTranscribing ? 'Transcribing...' : 'AI Transcribe'}</span>
                     </button>
                   )}
+
+                  <button
+                    onClick={handleRunWhisperOffline}
+                    disabled={isWhisperRunning || isTranscribing}
+                    className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-amber-300 font-bold text-[11px] rounded-lg transition-all border border-amber-500/30 active:scale-95 disabled:opacity-50 flex items-center space-x-1"
+                    title="Run 100% offline Whisper.cpp transcription"
+                  >
+                    {isWhisperRunning ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-amber-400" />
+                    ) : (
+                      <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                    )}
+                    <span>{isWhisperRunning ? 'Whisper...' : 'Whisper.cpp'}</span>
+                  </button>
+
+                  <button
+                    onClick={handleAddManualBlock}
+                    className="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] rounded-lg transition-all flex items-center space-x-1 shadow-sm active:scale-95 cursor-pointer"
+                    title="Add a new subtitle block manually"
+                  >
+                    <Plus className="w-3 h-3 stroke-[3]" />
+                    <span>Add Block</span>
+                  </button>
+
+                  <button
+                    onClick={handleRunTextCorrection}
+                    disabled={blocks.length === 0}
+                    className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] rounded-lg transition-all border border-slate-700 active:scale-95 disabled:opacity-40 flex items-center space-x-1"
+                    title="Auto-capitalize sentences and fix punctuation spacing"
+                  >
+                    <Wand2 className="w-3 h-3" />
+                    <span>Fix Grammar</span>
+                  </button>
+
+                  <button
+                    onClick={handleForceApplyAndSync}
+                    disabled={blocks.length === 0}
+                    className={`px-2.5 py-1 text-[11px] font-bold rounded-lg transition-all border flex items-center space-x-1 active:scale-95 ${
+                      hasSyncedRecently
+                        ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+                    }`}
+                    title="Force sync every subtitle and style change to preview canvas"
+                  >
+                    {hasSyncedRecently ? (
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                    ) : (
+                      <Zap className="w-3 h-3 text-amber-400" />
+                    )}
+                    <span>{hasSyncedRecently ? 'Synced!' : 'Apply & Sync'}</span>
+                  </button>
+
                   <button
                     onClick={handleApplySmartHighlights}
                     disabled={blocks.length === 0}
@@ -778,6 +1202,41 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                 </div>
               </div>
 
+              {/* Text Correction / Sync Feedback Toast */}
+              {correctionFeedback && (
+                <div className="bg-emerald-500/10 border border-emerald-500/30 p-2 rounded-xl text-xs font-semibold text-emerald-300 flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>{correctionFeedback}</span>
+                  </div>
+                  <button
+                    onClick={() => setCorrectionFeedback(null)}
+                    className="text-emerald-400/80 hover:text-emerald-200 text-xs px-1"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+
+              {/* Whisper Running Progress Feedback */}
+              {isWhisperRunning && (
+                <div className="bg-slate-900 border border-amber-500/30 p-3 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between text-xs font-bold">
+                    <span className="text-amber-300 flex items-center space-x-1.5">
+                      <Cpu className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+                      <span>{whisperStatus || 'Whisper.cpp processing...'}</span>
+                    </span>
+                    <span className="font-mono text-emerald-400">{whisperProgress}%</span>
+                  </div>
+                  <div className="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className="bg-gradient-to-r from-amber-500 to-emerald-400 h-full transition-all duration-300 rounded-full"
+                      style={{ width: `${whisperProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
               {/* Subtitle Blocks List */}
               {blocks.length === 0 ? (
                 <div className="text-center py-10 px-4 bg-slate-950/60 rounded-2xl border border-slate-800 space-y-4">
@@ -788,13 +1247,13 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                   <div className="space-y-1">
                     <h4 className="text-sm font-bold text-white">No Subtitles on Timeline</h4>
                     <p className="text-xs text-slate-400 max-w-md mx-auto">
-                      Subtitles were cleared or not yet generated. AutoCap can extract audio speech and generate word-level animated subtitles with Gemini AI in seconds.
+                      Subtitles were cleared or not yet generated. Choose an AI generation mode below to transcribe speech with word-level timestamps in seconds.
                     </p>
                   </div>
 
                   {/* AI Quick Transcribe Action Panel */}
-                  <div className="max-w-md mx-auto bg-slate-900/90 border border-amber-500/30 rounded-xl p-3.5 space-y-3 shadow-lg">
-                    <div className="flex items-center justify-between gap-2">
+                  <div className="max-w-md mx-auto bg-slate-900/90 border border-amber-500/30 rounded-xl p-3.5 space-y-2.5 shadow-lg">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="flex items-center space-x-1.5 text-xs text-slate-300 font-semibold">
                         <Languages className="w-3.5 h-3.5 text-amber-400" />
                         <span>Spoken Language:</span>
@@ -812,32 +1271,73 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                       </select>
                     </div>
 
-                    {transcribeStatus && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
+                      <div className="flex items-center space-x-1.5 text-xs text-slate-300 font-semibold">
+                        <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Whisper Model:</span>
+                      </div>
+                      <select
+                        value={selectedWhisperModel}
+                        onChange={e => setSelectedWhisperModel(e.target.value)}
+                        className="bg-slate-950 border border-slate-700 text-[11px] font-bold text-emerald-300 rounded-lg px-2 py-1 focus:outline-none focus:border-emerald-500"
+                      >
+                        {WHISPER_MODELS.map(m => (
+                          <option key={m.id} value={m.id}>
+                            {m.name} ({m.size}) {hardwareProfile?.recommendedModelId === m.id ? '★ Best' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {(transcribeStatus || whisperStatus) && (
                       <div className="text-[11px] text-amber-300 bg-amber-500/10 p-2 rounded-lg border border-amber-500/20 flex items-center justify-center space-x-2 font-medium">
                         <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                        <span>{transcribeStatus}</span>
+                        <span>{transcribeStatus || whisperStatus}</span>
                       </div>
                     )}
 
-                    <div className="flex flex-col sm:flex-row items-center gap-2 pt-1">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                       <button
                         onClick={handleTriggerAiTranscription}
-                        disabled={isTranscribing}
-                        className="w-full sm:flex-1 py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50"
+                        disabled={isTranscribing || isWhisperRunning}
+                        className="py-2.5 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center space-x-1.5 active:scale-95 disabled:opacity-50"
                       >
                         {isTranscribing ? (
                           <Loader2 className="w-4 h-4 animate-spin" />
                         ) : (
                           <Sparkles className="w-4 h-4 fill-slate-950" />
                         )}
-                        <span>{isTranscribing ? 'Transcribing with AI...' : '✨ Generate with Gemini AI'}</span>
+                        <span>{isTranscribing ? 'Transcribing...' : '✨ Gemini AI (Cloud)'}</span>
+                      </button>
+
+                      <button
+                        onClick={handleRunWhisperOffline}
+                        disabled={isWhisperRunning || isTranscribing}
+                        className="py-2.5 px-3 bg-slate-950 hover:bg-slate-800 text-emerald-400 font-bold rounded-xl text-xs border border-emerald-500/30 transition-all flex items-center justify-center space-x-1.5 active:scale-95 disabled:opacity-50"
+                      >
+                        {isWhisperRunning ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-emerald-400" />
+                        ) : (
+                          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                        )}
+                        <span>{isWhisperRunning ? 'Whisper...' : '🔒 Whisper.cpp (Offline)'}</span>
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-1 text-xs">
+                      <button
+                        onClick={handleAddManualBlock}
+                        className="py-1.5 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold border border-slate-700 hover:border-amber-500/40 transition-all flex items-center space-x-1.5"
+                      >
+                        <Plus className="w-3 h-3 text-amber-400" />
+                        <span>+ Add Manual Block</span>
                       </button>
 
                       <button
                         onClick={() => setActiveTab('generator')}
-                        className="w-full sm:w-auto py-2.5 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold rounded-xl text-xs border border-slate-700 transition-colors whitespace-nowrap"
+                        className="text-slate-400 hover:text-slate-200 underline font-medium"
                       >
-                        Paste Script & Align
+                        Or Paste Custom Script →
                       </button>
                     </div>
                   </div>
@@ -912,83 +1412,324 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                         </div>
                       </div>
 
-                      {/* Interactive Word Chips */}
-                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                      {/* Interactive Word Chips (Draggable & Reorderable) */}
+                      <div
+                        className="flex flex-wrap items-center gap-1.5 pt-0.5"
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDrop={(e) => {
+                          if (draggedWordInfo) {
+                            e.preventDefault();
+                            handleDropWord(block.id, block.words.length);
+                          }
+                        }}
+                      >
                         {block.words.map((word, wordIdx) => {
                           const isEditing = editingWordId === word.id;
                           const hasHighlight = !!word.colorOverride;
+                          const isBeingDragged = draggedWordInfo?.wordId === word.id;
+                          const isDragOver = dragOverWordInfo?.wordId === word.id && !isBeingDragged;
 
                           if (isEditing) {
                             return (
-                              <div key={word.id} className="flex items-center space-x-1 bg-slate-800 p-0.5 rounded-lg">
-                                <input
-                                  type="text"
-                                  autoFocus
-                                  value={editingWordText}
-                                  onChange={e => setEditingWordText(e.target.value)}
-                                  onKeyDown={e => {
-                                    if (e.key === 'Enter') handleSaveWordEdit(block.id, word.id);
-                                    if (e.key === 'Escape') setEditingWordId(null);
-                                  }}
-                                  className="bg-slate-900 border border-amber-500 text-white text-xs px-2 py-0.5 rounded focus:outline-none w-24 font-bold"
-                                />
-                                <button
-                                  onClick={() => handleSaveWordEdit(block.id, word.id)}
-                                  className="p-1 bg-amber-500 text-slate-950 rounded hover:bg-amber-400"
-                                >
-                                  <Check className="w-3 h-3 stroke-[3]" />
-                                </button>
-                              </div>
+                              <React.Fragment key={word.id}>
+                                <div className="flex items-center space-x-1 bg-slate-800 p-1 rounded-lg border border-amber-500/50 shadow-md">
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    value={editingWordText}
+                                    onChange={e => setEditingWordText(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleSaveWordEdit(block.id, word.id);
+                                      }
+                                      if (e.key === 'Escape') {
+                                        e.preventDefault();
+                                        setEditingWordId(null);
+                                        setEditingWordText('');
+                                      }
+                                      if ((e.key === 'Backspace' || e.key === 'Delete') && !editingWordText) {
+                                        e.preventDefault();
+                                        handleDeleteWord(block.id, word.id);
+                                      }
+                                    }}
+                                    className="bg-slate-950 border border-amber-500 text-white text-xs px-2 py-0.5 rounded focus:outline-none w-28 font-bold"
+                                    placeholder="Word text..."
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleSaveWordEdit(block.id, word.id);
+                                    }}
+                                    className="p-1 bg-amber-500 text-slate-950 rounded hover:bg-amber-400 transition-colors cursor-pointer"
+                                    title="Save word (Enter)"
+                                  >
+                                    <Check className="w-3 h-3 stroke-[3]" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleDeleteWord(block.id, word.id);
+                                    }}
+                                    className="p-1 bg-rose-500/20 text-rose-300 rounded hover:bg-rose-500/40 transition-colors cursor-pointer"
+                                    title="Delete this word"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setEditingWordId(null);
+                                      setEditingWordText('');
+                                    }}
+                                    className="p-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition-colors cursor-pointer"
+                                    title="Cancel (Esc)"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </React.Fragment>
                             );
                           }
 
                           return (
-                            <div
-                              key={word.id}
-                              className={`group/word inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-bold transition-all border ${
-                                hasHighlight
-                                  ? 'border-transparent shadow-sm'
-                                  : 'bg-slate-900 border-slate-800 text-slate-200 hover:border-slate-700'
-                              }`}
-                              style={
-                                hasHighlight
-                                  ? { backgroundColor: word.colorOverride, color: '#000000' }
-                                  : {}
-                              }
-                            >
-                              <span
-                                onClick={() => handleToggleWordHighlight(block.id, word.id)}
-                                className="cursor-pointer select-none"
-                                title="Click to toggle highlight color"
+                            <React.Fragment key={word.id}>
+                              <div
+                                draggable={!isEditing}
+                                onDragStart={(e) => {
+                                  e.dataTransfer.setData('text/plain', JSON.stringify({ blockId: block.id, wordId: word.id, index: wordIdx }));
+                                  e.dataTransfer.effectAllowed = 'move';
+                                  setDraggedWordInfo({ blockId: block.id, wordId: word.id, index: wordIdx });
+                                }}
+                                onDragOver={(e) => {
+                                  e.preventDefault();
+                                  e.dataTransfer.dropEffect = 'move';
+                                  if (dragOverWordInfo?.wordId !== word.id) {
+                                    setDragOverWordInfo({ blockId: block.id, wordId: word.id, index: wordIdx });
+                                  }
+                                }}
+                                onDragLeave={() => {
+                                  if (dragOverWordInfo?.wordId === word.id) {
+                                    setDragOverWordInfo(null);
+                                  }
+                                }}
+                                onDragEnd={() => {
+                                  setDraggedWordInfo(null);
+                                  setDragOverWordInfo(null);
+                                }}
+                                onDrop={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  handleDropWord(block.id, wordIdx);
+                                }}
+                                className={`group/word inline-flex items-center space-x-1 pl-1.5 pr-2 py-1 rounded-lg text-xs font-bold transition-all border select-none cursor-grab active:cursor-grabbing ${
+                                  isBeingDragged
+                                    ? 'opacity-40 scale-95 border-dashed border-amber-500 bg-amber-500/10'
+                                    : isDragOver
+                                    ? 'ring-2 ring-amber-400 bg-amber-500/25 border-amber-400 scale-105 shadow-md shadow-amber-500/10'
+                                    : hasHighlight
+                                    ? 'border-transparent shadow-sm'
+                                    : 'bg-slate-900 border-slate-800 text-slate-200 hover:border-slate-700 hover:bg-slate-800/80'
+                                }`}
+                                style={
+                                  hasHighlight && !isBeingDragged && !isDragOver
+                                    ? { backgroundColor: word.colorOverride, color: '#000000' }
+                                    : {}
+                                }
                               >
-                                {word.text}
-                              </span>
+                                <GripVertical className="w-3 h-3 text-slate-500 group-hover/word:text-amber-400 opacity-40 group-hover/word:opacity-100 transition-opacity flex-shrink-0" />
 
-                              <div className="opacity-0 group-hover/word:opacity-100 flex items-center space-x-0.5 transition-opacity ml-1">
-                                <button
-                                  onClick={() => {
+                                <span
+                                  onClick={() => handleToggleWordHighlight(block.id, word.id)}
+                                  onDoubleClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
                                     setEditingWordId(word.id);
                                     setEditingWordText(word.text);
                                   }}
-                                  className="p-0.5 hover:text-amber-400 text-slate-400"
-                                  title="Edit text"
+                                  className="cursor-pointer select-none"
+                                  title="Drag to reorder | Click: toggle highlight | Double-click: edit text"
                                 >
-                                  <Edit2 className="w-2.5 h-2.5" />
-                                </button>
+                                  {word.text}
+                                </span>
 
-                                {wordIdx > 0 && (
+                                <div className="flex items-center space-x-0.5 ml-1">
                                   <button
-                                    onClick={() => handleSplitWordToNewBlock(block.id, wordIdx)}
-                                    className="p-0.5 hover:text-amber-400 text-slate-400"
-                                    title="Split into new block at this word"
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setEditingWordId(word.id);
+                                      setEditingWordText(word.text);
+                                    }}
+                                    className="p-0.5 opacity-60 hover:opacity-100 hover:text-amber-400 text-slate-400 transition-opacity cursor-pointer"
+                                    title="Edit text (Double-click word)"
                                   >
-                                    <Scissors className="w-2.5 h-2.5" />
+                                    <Edit2 className="w-2.5 h-2.5" />
                                   </button>
-                                )}
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setAddingWordBlockId(block.id);
+                                      setAddingWordIndex(wordIdx + 1);
+                                      setNewWordInput('');
+                                    }}
+                                    className="p-0.5 opacity-60 hover:opacity-100 hover:text-amber-400 text-slate-400 transition-opacity cursor-pointer"
+                                    title="Insert new word after this"
+                                  >
+                                    <Plus className="w-2.5 h-2.5" />
+                                  </button>
+
+                                  {wordIdx > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        handleSplitWordToNewBlock(block.id, wordIdx);
+                                      }}
+                                      className="p-0.5 opacity-60 hover:opacity-100 hover:text-amber-400 text-slate-400 transition-opacity cursor-pointer"
+                                      title="Split into new block at this word"
+                                    >
+                                      <Scissors className="w-2.5 h-2.5" />
+                                    </button>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      handleDeleteWord(block.id, word.id);
+                                    }}
+                                    className="p-0.5 opacity-60 hover:opacity-100 hover:text-rose-400 hover:bg-rose-500/20 rounded text-slate-400 transition-all cursor-pointer"
+                                    title="Delete this word"
+                                  >
+                                    <X className="w-2.5 h-2.5" />
+                                  </button>
+                                </div>
                               </div>
-                            </div>
+
+                              {/* Inline Add Word Input Inserted Between Words */}
+                              {addingWordBlockId === block.id && addingWordIndex === wordIdx + 1 && (
+                                <div className="flex items-center space-x-1 bg-slate-800 p-1 rounded-lg border border-amber-500/50 shadow-md">
+                                  <input
+                                    type="text"
+                                    autoFocus
+                                    value={newWordInput}
+                                    onChange={e => setNewWordInput(e.target.value)}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        handleConfirmAddWord(block.id, wordIdx + 1);
+                                      }
+                                      if (e.key === 'Escape') {
+                                        e.preventDefault();
+                                        setAddingWordBlockId(null);
+                                        setAddingWordIndex(null);
+                                        setNewWordInput('');
+                                      }
+                                    }}
+                                    className="bg-slate-950 border border-amber-500 text-white text-xs px-2 py-0.5 rounded focus:outline-none w-28 font-bold"
+                                    placeholder="New word(s)..."
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleConfirmAddWord(block.id, wordIdx + 1)}
+                                    className="p-1 bg-amber-500 text-slate-950 rounded hover:bg-amber-400 transition-colors cursor-pointer"
+                                    title="Insert word (Enter)"
+                                  >
+                                    <Check className="w-3 h-3 stroke-[3]" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setAddingWordBlockId(null);
+                                      setAddingWordIndex(null);
+                                      setNewWordInput('');
+                                    }}
+                                    className="p-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition-colors cursor-pointer"
+                                    title="Cancel (Esc)"
+                                  >
+                                    <X className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              )}
+                            </React.Fragment>
                           );
                         })}
+
+                        {/* Add Word at End of Block */}
+                        {addingWordBlockId === block.id && (addingWordIndex === null || addingWordIndex >= block.words.length) ? (
+                          <div className="flex items-center space-x-1 bg-slate-800 p-1 rounded-lg border border-amber-500/50 shadow-md">
+                            <input
+                              type="text"
+                              autoFocus
+                              value={newWordInput}
+                              onChange={e => setNewWordInput(e.target.value)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') {
+                                  e.preventDefault();
+                                  handleConfirmAddWord(block.id);
+                                }
+                                if (e.key === 'Escape') {
+                                  e.preventDefault();
+                                  setAddingWordBlockId(null);
+                                  setAddingWordIndex(null);
+                                  setNewWordInput('');
+                                }
+                              }}
+                              className="bg-slate-950 border border-amber-500 text-white text-xs px-2 py-0.5 rounded focus:outline-none w-28 font-bold"
+                              placeholder="Type word(s)..."
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleConfirmAddWord(block.id)}
+                              className="p-1 bg-amber-500 text-slate-950 rounded hover:bg-amber-400 transition-colors cursor-pointer"
+                              title="Add word (Enter)"
+                            >
+                              <Check className="w-3 h-3 stroke-[3]" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setAddingWordBlockId(null);
+                                setAddingWordIndex(null);
+                                setNewWordInput('');
+                              }}
+                              className="p-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600 transition-colors cursor-pointer"
+                              title="Cancel (Esc)"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAddingWordBlockId(block.id);
+                              setAddingWordIndex(null);
+                              setNewWordInput('');
+                            }}
+                            className="inline-flex items-center space-x-1 px-2 py-1 rounded-lg text-xs font-semibold bg-slate-900/90 hover:bg-amber-500/20 text-slate-400 hover:text-amber-300 border border-dashed border-slate-700/80 hover:border-amber-500/50 transition-all cursor-pointer group/addword"
+                            title="Add new word chip to this caption block"
+                          >
+                            <Plus className="w-3 h-3 group-hover/addword:scale-110 transition-transform text-amber-400" />
+                            <span>Add Word</span>
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1000,7 +1741,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
           {/* TAB 2: AI & SCRIPT GENERATOR */}
           {activeTab === 'generator' && (
             <div className="space-y-4">
-              {/* Card 1: AI Speech Transcription Engine (Primary) */}
+              {/* Card 1: AI Speech Transcription Engine (Cloud) */}
               <div className="bg-slate-950/90 p-4 rounded-2xl border border-amber-500/30 space-y-3 shadow-lg">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-2">
@@ -1010,12 +1751,12 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                     <div>
                       <div className="flex items-center space-x-2">
                         <span className="text-xs font-bold text-white">Gemini AI Auto-Transcription</span>
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold">
-                          Multilingual AI
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold">
+                          Cloud Multimodal
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-400">
-                        Extracts speech audio, syncs word-level timestamps & auto-applies kinetic highlight colors
+                        High accuracy speech-to-text with contextual mood analysis & kinetic highlights
                       </p>
                     </div>
                   </div>
@@ -1050,7 +1791,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
 
                   <button
                     onClick={handleTriggerAiTranscription}
-                    disabled={isTranscribing}
+                    disabled={isTranscribing || isWhisperRunning}
                     className="w-full py-2.5 px-4 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-amber-500/20 transition-all flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50"
                   >
                     {isTranscribing ? (
@@ -1058,12 +1799,117 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                     ) : (
                       <Sparkles className="w-4 h-4 fill-slate-950" />
                     )}
-                    <span>{isTranscribing ? 'Transcribing Speech with Gemini AI...' : '✨ Generate Subtitles with AI'}</span>
+                    <span>{isTranscribing ? 'Transcribing Speech with Gemini AI...' : '✨ Generate Subtitles with Gemini AI'}</span>
                   </button>
                 </div>
               </div>
 
-              {/* Card 2: Paste Script & Dictation */}
+              {/* Card 2: Whisper.cpp 100% Offline Speech Engine (Local) */}
+              <div className="bg-slate-950/90 p-4 rounded-2xl border border-emerald-500/30 space-y-3 shadow-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-8 h-8 rounded-xl bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                      <ShieldCheck className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-xs font-bold text-white">Whisper.cpp Local Engine</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-bold">
+                          100% Offline / Private
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        Runs directly inside your browser via WebAudio VAD & Mel-spectrogram processing — zero server latency
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {hardwareProfile && (
+                  <div className="bg-slate-900/90 px-3 py-2 rounded-xl border border-emerald-500/20 flex items-center justify-between text-[11px] text-slate-300">
+                    <div className="flex items-center space-x-1.5">
+                      <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+                      <span className="font-medium">
+                        Hardware: <span className="text-white font-semibold">{hardwareProfile.logicalCores} CPU Cores</span> • <span className="text-white font-semibold">{hardwareProfile.memoryGb}GB RAM</span> {hardwareProfile.hasWebGpu ? '• WebGPU Active ⚡' : ''}
+                      </span>
+                    </div>
+                    <span className="text-emerald-400 text-[10px] font-bold bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
+                      {hardwareProfile.recommendationReason}
+                    </span>
+                  </div>
+                )}
+
+                <div className="bg-slate-900/80 p-3 rounded-xl border border-slate-800 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
+                    <span className="font-semibold flex items-center space-x-1.5">
+                      <Cpu className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Model Architecture:</span>
+                    </span>
+                    <select
+                      value={selectedWhisperModel}
+                      onChange={e => setSelectedWhisperModel(e.target.value)}
+                      className="bg-slate-950 border border-slate-700 text-xs font-bold text-emerald-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-emerald-500"
+                    >
+                      {WHISPER_MODELS.map(m => (
+                        <option key={m.id} value={m.id}>
+                          {m.name} ({m.size} • {m.speed}) {hardwareProfile?.recommendedModelId === m.id ? '★ Recommended' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-300">
+                    <span className="font-semibold flex items-center space-x-1.5">
+                      <Languages className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Spoken Language:</span>
+                    </span>
+                    <select
+                      value={selectedLanguage}
+                      onChange={e => setSelectedLanguage(e.target.value)}
+                      className="bg-slate-950 border border-slate-700 text-xs font-bold text-emerald-300 rounded-lg px-2.5 py-1 focus:outline-none focus:border-emerald-500"
+                    >
+                      {SUPPORTED_LANGUAGES.map(lang => (
+                        <option key={lang.code} value={lang.code}>
+                          {lang.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {isWhisperRunning && (
+                    <div className="space-y-1.5 bg-slate-950 p-2.5 rounded-lg border border-emerald-500/20">
+                      <div className="flex justify-between text-[11px] text-slate-300 font-semibold">
+                        <span className="text-emerald-300 flex items-center space-x-1.5">
+                          <Loader2 className="w-3 h-3 animate-spin text-emerald-400" />
+                          <span>{whisperStatus || 'Processing audio frames...'}</span>
+                        </span>
+                        <span className="font-mono text-emerald-400">{whisperProgress}%</span>
+                      </div>
+                      <div className="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                        <div
+                          className="bg-emerald-400 h-full transition-all duration-300 rounded-full"
+                          style={{ width: `${whisperProgress}%` }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  <button
+                    onClick={handleRunWhisperOffline}
+                    disabled={isWhisperRunning || isTranscribing}
+                    className="w-full py-2.5 px-4 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black rounded-xl text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center space-x-2 active:scale-95 disabled:opacity-50"
+                  >
+                    {isWhisperRunning ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                    ) : (
+                      <ShieldCheck className="w-4 h-4" />
+                    )}
+                    <span>{isWhisperRunning ? 'Transcribing with Whisper.cpp...' : '🔒 Transcribe 100% Offline with Whisper.cpp'}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Card 3: Paste Script & Dictation */}
               <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-slate-300 flex items-center space-x-1.5">
@@ -1071,15 +1917,32 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
                     <span>Paste Custom Script (Smart Alignment)</span>
                   </span>
 
-                  <button
-                    onClick={handleToggleSpeechRecognition}
-                    className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
-                      isRecording ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-800 text-slate-300 hover:text-white'
-                    }`}
-                  >
-                    <Mic className="w-3 h-3" />
-                    <span>{isRecording ? 'Listening...' : 'Dictate'}</span>
-                  </button>
+                  <div className="flex items-center space-x-1.5">
+                    <button
+                      onClick={() => {
+                        if (transcriptInput.trim()) {
+                          setTranscriptInput(correctRawSubtitleText(transcriptInput));
+                          setCorrectionFeedback('✓ Cleaned script text & capitalized sentences');
+                          setTimeout(() => setCorrectionFeedback(null), 3000);
+                        }
+                      }}
+                      disabled={!transcriptInput.trim()}
+                      className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 disabled:opacity-40"
+                      title="Fix sentence capitalization & punctuation spacing in the text box"
+                    >
+                      Clean Text
+                    </button>
+
+                    <button
+                      onClick={handleToggleSpeechRecognition}
+                      className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-[10px] font-bold transition-all ${
+                        isRecording ? 'bg-rose-500 text-white animate-pulse' : 'bg-slate-800 text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      <Mic className="w-3 h-3" />
+                      <span>{isRecording ? 'Listening...' : 'Dictate'}</span>
+                    </button>
+                  </div>
                 </div>
 
                 {dictationError && (
@@ -1123,9 +1986,45 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
             </div>
           )}
 
-          {/* TAB 3: MULTI-SPEAKER & EXPORT TOOLS */}
+          {/* TAB 3: TOOLS & EXPORT */}
           {activeTab === 'tools' && (
             <div className="space-y-4">
+              {/* Text Correction & Canvas Sync Card */}
+              <div className="bg-slate-950/80 p-3.5 rounded-xl border border-amber-500/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-slate-200 flex items-center space-x-1.5">
+                    <Wand2 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>AI Grammar & Punctuation Correction</span>
+                  </span>
+                  <span className="text-[10px] text-amber-400/90 font-medium">1-Click Auto-Fix</span>
+                </div>
+
+                <p className="text-[11px] text-slate-400">
+                  Automatically capitalizes the first letter of every sentence, fixes standalone "I", cleans up punctuation spacing, and fixes broken contractions.
+                </p>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleRunTextCorrection}
+                    disabled={blocks.length === 0}
+                    className="flex-1 py-2 px-3 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black rounded-xl text-xs shadow transition-all flex items-center justify-center space-x-1.5 disabled:opacity-40 active:scale-95"
+                  >
+                    <Wand2 className="w-3.5 h-3.5" />
+                    <span>Fix Punctuation & Capitalize Sentences</span>
+                  </button>
+
+                  <button
+                    onClick={handleForceApplyAndSync}
+                    disabled={blocks.length === 0}
+                    className="py-2 px-3 bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30 font-bold rounded-xl text-xs transition-all flex items-center space-x-1.5 disabled:opacity-40 active:scale-95"
+                    title="Synchronize all changes and force immediate canvas redraw"
+                  >
+                    <Zap className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Sync Canvas</span>
+                  </button>
+                </div>
+              </div>
+
               {/* Speaker Diarization Tools */}
               <div className="bg-slate-950/80 p-3.5 rounded-xl border border-slate-800 space-y-3">
                 <div className="flex items-center justify-between">

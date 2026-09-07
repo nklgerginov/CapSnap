@@ -118,6 +118,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     if (!video || !transform) return;
 
     const handleTimeCheck = () => {
+      if (video.dataset.exporting === 'true') return;
       if (transform.trimEnd && transform.trimEnd > 0 && video.currentTime >= transform.trimEnd) {
         video.currentTime = transform.trimStart || 0;
       }
@@ -404,66 +405,108 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
     }
   }, [isPlaying]);
 
-  // Render canvas loop with smooth requestAnimationFrame during playback
+  // Keep latest props in a ref to avoid recreating the rAF loop on every state update
+  const latestPropsRef = useRef({
+    blocks,
+    style,
+    filter,
+    aspectRatio,
+    transform,
+    watermark,
+    progressBar,
+    audioSettings,
+    duration,
+    currentTime,
+  });
+
   useEffect(() => {
-    let animId: number;
+    latestPropsRef.current = {
+      blocks,
+      style,
+      filter,
+      aspectRatio,
+      transform,
+      watermark,
+      progressBar,
+      audioSettings,
+      duration,
+      currentTime,
+    };
+  });
 
-    const renderLoop = () => {
-      if (canvasRef.current && videoRef.current) {
-        const activeTime = isPlaying && videoRef.current ? videoRef.current.currentTime : currentTime;
-        
-        renderCanvasFrame({
-          canvas: canvasRef.current,
-          video: videoRef.current,
-          currentTime: activeTime,
-          duration,
-          blocks,
-          style,
-          filter,
-          aspectRatio,
-          transform,
-          watermark,
-          progressBar,
-        });
+  // Dedicated Render Frame helper that draws to canvas
+  const drawFrame = useCallback((timeToRender?: number) => {
+    if (!canvasRef.current || !videoRef.current) return;
+    if (videoRef.current.dataset.exporting === 'true') return;
 
-        // Frame-accurate 60fps SFX evaluation
-        if (isPlaying && audioSettings?.sfxEnabled) {
-          if (Math.abs(activeTime - lastSfxTimeRef.current) > 0.4) {
-            playedSfxWordsRef.current.clear();
-          }
-          lastSfxTimeRef.current = activeTime;
+    const props = latestPropsRef.current;
+    const activeTime = typeof timeToRender === 'number'
+      ? timeToRender
+      : (isPlaying && videoRef.current ? videoRef.current.currentTime : props.currentTime);
 
-          for (const block of blocks) {
-            if (activeTime < block.start - 0.05 || activeTime > block.end + 0.05) continue;
-            for (const word of block.words) {
-              if (activeTime >= word.start && activeTime <= word.end) {
-                if (!playedSfxWordsRef.current.has(word.id)) {
-                  playedSfxWordsRef.current.add(word.id);
-                  const isEmphasized = word.isEmphasized || !!word.colorOverride || !!word.emoji;
-                  const shouldPlay = audioSettings.sfxOnEmphasizedOnly !== false ? isEmphasized : true;
-                  if (shouldPlay) {
-                    const preset = audioSettings.sfxPreset || 'pop';
-                    const vol = (audioSettings.sfxVolume ?? 75) / 100;
-                    playSfx(preset, vol);
-                  }
-                }
+    renderCanvasFrame({
+      canvas: canvasRef.current,
+      video: videoRef.current,
+      currentTime: activeTime,
+      duration: props.duration,
+      blocks: props.blocks,
+      style: props.style,
+      filter: props.filter,
+      aspectRatio: props.aspectRatio,
+      transform: props.transform,
+      watermark: props.watermark,
+      progressBar: props.progressBar,
+    });
+
+    // Frame-accurate 60fps SFX evaluation during playback
+    if (isPlaying && props.audioSettings?.sfxEnabled) {
+      if (Math.abs(activeTime - lastSfxTimeRef.current) > 0.4) {
+        playedSfxWordsRef.current.clear();
+      }
+      lastSfxTimeRef.current = activeTime;
+
+      for (const block of props.blocks) {
+        if (activeTime < block.start - 0.05 || activeTime > block.end + 0.05) continue;
+        for (const word of block.words) {
+          if (activeTime >= word.start && activeTime <= word.end) {
+            if (!playedSfxWordsRef.current.has(word.id)) {
+              playedSfxWordsRef.current.add(word.id);
+              const isEmphasized = word.isEmphasized || !!word.colorOverride || !!word.emoji;
+              const shouldPlay = props.audioSettings.sfxOnEmphasizedOnly !== false ? isEmphasized : true;
+              if (shouldPlay) {
+                const preset = props.audioSettings.sfxPreset || 'pop';
+                const vol = (props.audioSettings.sfxVolume ?? 75) / 100;
+                playSfx(preset, vol);
               }
             }
           }
         }
       }
+    }
+  }, [isPlaying, videoRef]);
 
-      if (isPlaying) {
-        animId = requestAnimationFrame(renderLoop);
-      }
+  // Continuous uninterrupted 60fps requestAnimationFrame loop during active playback
+  useEffect(() => {
+    if (!isPlaying) return;
+
+    let animId: number;
+    const loop = () => {
+      drawFrame();
+      animId = requestAnimationFrame(loop);
     };
 
-    renderLoop();
-
+    animId = requestAnimationFrame(loop);
     return () => {
       if (animId) cancelAnimationFrame(animId);
     };
-  }, [isPlaying, currentTime, duration, blocks, style, filter, aspectRatio, transform, watermark, progressBar, audioSettings, videoRef]);
+  }, [isPlaying, drawFrame]);
+
+  // On-demand frame render when paused or when props change
+  useEffect(() => {
+    if (!isPlaying) {
+      drawFrame(currentTime);
+    }
+  }, [isPlaying, currentTime, duration, blocks, style, filter, aspectRatio, transform, watermark, progressBar, drawFrame]);
 
   // Handle Drag & Drop file upload
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
@@ -707,10 +750,10 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
             <div
               onMouseEnter={() => setIsHoveringBox(true)}
               onMouseLeave={() => setIsHoveringBox(false)}
-              className={`absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-75 select-none z-20 group/subtitle-box ${
+              className={`absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-150 select-none z-20 group/subtitle-box ${
                 activeHandle || isHoveringBox
-                  ? 'ring-2 ring-amber-400/90 shadow-[0_0_20px_rgba(251,191,36,0.25)] rounded-xl'
-                  : 'ring-1 ring-amber-400/40 hover:ring-amber-400/80 rounded-xl'
+                  ? 'ring-2 ring-amber-400/80 shadow-[0_0_15px_rgba(251,191,36,0.15)] rounded-xl opacity-100'
+                  : 'ring-1 ring-amber-400/20 hover:ring-amber-400/60 rounded-xl opacity-30 hover:opacity-100'
               }`}
               style={{
                 left: `${style.positionXPercent ?? 50}%`,
@@ -720,12 +763,12 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* Box Center Interactive Drag Area */}
               <div
                 onPointerDown={e => handleHandlePointerDown(e, 'move')}
-                className="cursor-move p-3 flex flex-col items-center justify-center min-w-[150px] min-h-[44px] bg-slate-950/20 backdrop-blur-[1px] rounded-xl border border-dashed border-amber-400/50 hover:border-amber-400"
+                className="cursor-move p-2.5 flex flex-col items-center justify-center min-w-[130px] min-h-[36px] bg-slate-950/10 hover:bg-slate-950/30 backdrop-blur-[0.5px] rounded-xl border border-dashed border-amber-400/25 hover:border-amber-400/60 transition-all"
               >
                 {/* Caption Sample / Real-Time Display */}
-                <div className="text-center font-black tracking-wide text-amber-300 text-xs flex items-center justify-center space-x-1.5 opacity-95 drop-shadow">
-                  <Move className="w-3.5 h-3.5 text-amber-400 animate-pulse shrink-0" />
-                  <span className="truncate max-w-[220px]">
+                <div className="text-center font-bold tracking-wide text-amber-300/75 group-hover/subtitle-box:text-amber-300 text-xs flex items-center justify-center space-x-1.5 transition-colors drop-shadow-sm">
+                  <Move className="w-3 h-3 text-amber-400/60 group-hover/subtitle-box:text-amber-400 shrink-0" />
+                  <span className="truncate max-w-[200px] text-[11px]">
                     {activeBlock
                       ? activeBlock.words.map(w => w.text).join(' ')
                       : 'SUBTITLE CONTAINER'}
@@ -733,23 +776,23 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                 </div>
 
                 {/* Dimension & Position Tag */}
-                <div className="mt-1 text-[10px] font-mono text-amber-400/90 bg-slate-950/80 px-2 py-0.5 rounded-md border border-slate-800 flex items-center space-x-2">
-                  <span>Font: {style.fontSize}px</span>
+                <div className="mt-0.5 text-[9px] font-mono text-amber-400/60 group-hover/subtitle-box:text-amber-300 bg-slate-950/30 group-hover/subtitle-box:bg-slate-950/70 px-1.5 py-0.5 rounded border border-amber-400/15 flex items-center space-x-1.5 transition-all">
+                  <span>{style.fontSize}px</span>
                   <span>•</span>
-                  <span>{style.maxWordsPerLine} words/line</span>
+                  <span>{style.maxWordsPerLine}w/line</span>
                 </div>
               </div>
 
               {/* Floating Quick Action Mini-Toolbar (Hover or Dragging) */}
               {(isHoveringBox || activeHandle) && (
-                <div className="absolute -top-11 left-1/2 -translate-x-1/2 bg-slate-900/95 backdrop-blur-md border border-amber-500/40 rounded-xl p-1 shadow-2xl flex items-center space-x-1 z-30 text-white animate-in fade-in zoom-in-95 duration-100">
+                <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-950/75 hover:bg-slate-950/90 backdrop-blur-md border border-amber-500/30 rounded-xl p-1 shadow-xl flex items-center space-x-1 z-30 text-white animate-in fade-in zoom-in-95 duration-100 transition-colors">
                   {/* Font Size decrease */}
                   <button
                     onClick={e => {
                       e.stopPropagation();
                       onStyleChange({ fontSize: Math.max(16, (style.fontSize || 48) - 4) });
                     }}
-                    className="p-1 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-amber-400 transition-colors"
+                    className="p-1 hover:bg-slate-800/80 rounded-lg text-slate-300 hover:text-amber-400 transition-colors"
                     title="Decrease Font Size (-4px)"
                   >
                     <Minus className="w-3.5 h-3.5" />
@@ -763,13 +806,13 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                       e.stopPropagation();
                       onStyleChange({ fontSize: Math.min(120, (style.fontSize || 48) + 4) });
                     }}
-                    className="p-1 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-amber-400 transition-colors"
+                    className="p-1 hover:bg-slate-800/80 rounded-lg text-slate-300 hover:text-amber-400 transition-colors"
                     title="Increase Font Size (+4px)"
                   >
                     <Plus className="w-3.5 h-3.5" />
                   </button>
 
-                  <div className="w-px h-3.5 bg-slate-700 my-auto" />
+                  <div className="w-px h-3.5 bg-slate-700/60 my-auto" />
 
                   {/* Words per line decrease */}
                   <button
@@ -777,7 +820,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                       e.stopPropagation();
                       onStyleChange({ maxWordsPerLine: Math.max(1, (style.maxWordsPerLine || 3) - 1) });
                     }}
-                    className="p-1 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-amber-400 transition-colors"
+                    className="p-1 hover:bg-slate-800/80 rounded-lg text-slate-300 hover:text-amber-400 transition-colors"
                     title="Fewer words per line (-1)"
                   >
                     <Type className="w-3.5 h-3.5 text-slate-400" />
@@ -792,7 +835,7 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                       e.stopPropagation();
                       onStyleChange({ maxWordsPerLine: Math.min(8, (style.maxWordsPerLine || 3) + 1) });
                     }}
-                    className="p-1 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-amber-400 transition-colors"
+                    className="p-1 hover:bg-slate-800/80 rounded-lg text-slate-300 hover:text-amber-400 transition-colors"
                     title="More words per line (+1)"
                   >
                     <Type className="w-3.5 h-3.5 text-slate-400" />
@@ -805,8 +848,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* 1. NW Corner (Top-Left) */}
               <div
                 onPointerDown={e => handleHandlePointerDown(e, 'nw')}
-                className={`absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-amber-400 hover:bg-amber-300 border-2 border-slate-950 rounded-full shadow-lg cursor-nwse-resize z-30 transition-transform ${
-                  activeHandle === 'nw' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50' : 'hover:scale-125'
+                className={`absolute -top-1.5 -left-1.5 w-3 h-3 bg-amber-400/80 hover:bg-amber-300 border border-slate-950 rounded-full shadow cursor-nwse-resize z-30 transition-all ${
+                  activeHandle === 'nw' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50 opacity-100' : 'opacity-40 group-hover/subtitle-box:opacity-100 hover:scale-125'
                 }`}
                 title="Drag corner to scale font size"
               />
@@ -814,8 +857,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* 2. N Center (Top Edge) */}
               <div
                 onPointerDown={e => handleHandlePointerDown(e, 'n')}
-                className={`absolute -top-1.5 left-1/2 -translate-x-1/2 w-4 h-2.5 bg-amber-400 hover:bg-amber-300 border border-slate-950 rounded-full shadow-lg cursor-ns-resize z-30 transition-transform ${
-                  activeHandle === 'n' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50' : 'hover:scale-125'
+                className={`absolute -top-1.5 left-1/2 -translate-x-1/2 w-3.5 h-2 bg-amber-400/80 hover:bg-amber-300 border border-slate-950 rounded-full shadow cursor-ns-resize z-30 transition-all ${
+                  activeHandle === 'n' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50 opacity-100' : 'opacity-40 group-hover/subtitle-box:opacity-100 hover:scale-125'
                 }`}
                 title="Drag edge to scale font size"
               />
@@ -823,8 +866,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* 3. NE Corner (Top-Right) */}
               <div
                 onPointerDown={e => handleHandlePointerDown(e, 'ne')}
-                className={`absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-amber-400 hover:bg-amber-300 border-2 border-slate-950 rounded-full shadow-lg cursor-nesw-resize z-30 transition-transform ${
-                  activeHandle === 'ne' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50' : 'hover:scale-125'
+                className={`absolute -top-1.5 -right-1.5 w-3 h-3 bg-amber-400/80 hover:bg-amber-300 border border-slate-950 rounded-full shadow cursor-nesw-resize z-30 transition-all ${
+                  activeHandle === 'ne' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50 opacity-100' : 'opacity-40 group-hover/subtitle-box:opacity-100 hover:scale-125'
                 }`}
                 title="Drag corner to scale font size"
               />
@@ -832,8 +875,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* 4. E Center (Right Edge - Width / Words) */}
               <div
                 onPointerDown={e => handleHandlePointerDown(e, 'e')}
-                className={`absolute top-1/2 -right-1.5 -translate-y-1/2 w-2.5 h-4 bg-amber-400 hover:bg-amber-300 border border-slate-950 rounded-full shadow-lg cursor-ew-resize z-30 transition-transform ${
-                  activeHandle === 'e' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50' : 'hover:scale-125'
+                className={`absolute top-1/2 -right-1.5 -translate-y-1/2 w-2 h-3.5 bg-amber-400/80 hover:bg-amber-300 border border-slate-950 rounded-full shadow cursor-ew-resize z-30 transition-all ${
+                  activeHandle === 'e' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50 opacity-100' : 'opacity-40 group-hover/subtitle-box:opacity-100 hover:scale-125'
                 }`}
                 title="Drag right handle to change words per line (width)"
               />
@@ -841,8 +884,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* 5. SE Corner (Bottom-Right) */}
               <div
                 onPointerDown={e => handleHandlePointerDown(e, 'se')}
-                className={`absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-amber-400 hover:bg-amber-300 border-2 border-slate-950 rounded-full shadow-lg cursor-nwse-resize z-30 transition-transform ${
-                  activeHandle === 'se' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50' : 'hover:scale-125'
+                className={`absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-amber-400/80 hover:bg-amber-300 border border-slate-950 rounded-full shadow cursor-nwse-resize z-30 transition-all ${
+                  activeHandle === 'se' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50 opacity-100' : 'opacity-40 group-hover/subtitle-box:opacity-100 hover:scale-125'
                 }`}
                 title="Drag corner to scale font size"
               />
@@ -850,8 +893,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* 6. S Center (Bottom Edge) */}
               <div
                 onPointerDown={e => handleHandlePointerDown(e, 's')}
-                className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-4 h-2.5 bg-amber-400 hover:bg-amber-300 border border-slate-950 rounded-full shadow-lg cursor-ns-resize z-30 transition-transform ${
-                  activeHandle === 's' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50' : 'hover:scale-125'
+                className={`absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3.5 h-2 bg-amber-400/80 hover:bg-amber-300 border border-slate-950 rounded-full shadow cursor-ns-resize z-30 transition-all ${
+                  activeHandle === 's' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50 opacity-100' : 'opacity-40 group-hover/subtitle-box:opacity-100 hover:scale-125'
                 }`}
                 title="Drag edge to scale font size"
               />
@@ -859,8 +902,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* 7. SW Corner (Bottom-Left) */}
               <div
                 onPointerDown={e => handleHandlePointerDown(e, 'sw')}
-                className={`absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-amber-400 hover:bg-amber-300 border-2 border-slate-950 rounded-full shadow-lg cursor-nesw-resize z-30 transition-transform ${
-                  activeHandle === 'sw' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50' : 'hover:scale-125'
+                className={`absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-amber-400/80 hover:bg-amber-300 border border-slate-950 rounded-full shadow cursor-nesw-resize z-30 transition-all ${
+                  activeHandle === 'sw' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50 opacity-100' : 'opacity-40 group-hover/subtitle-box:opacity-100 hover:scale-125'
                 }`}
                 title="Drag corner to scale font size"
               />
@@ -868,8 +911,8 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               {/* 8. W Center (Left Edge - Width / Words) */}
               <div
                 onPointerDown={e => handleHandlePointerDown(e, 'w')}
-                className={`absolute top-1/2 -left-1.5 -translate-y-1/2 w-2.5 h-4 bg-amber-400 hover:bg-amber-300 border border-slate-950 rounded-full shadow-lg cursor-ew-resize z-30 transition-transform ${
-                  activeHandle === 'w' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50' : 'hover:scale-125'
+                className={`absolute top-1/2 -left-1.5 -translate-y-1/2 w-2 h-3.5 bg-amber-400/80 hover:bg-amber-300 border border-slate-950 rounded-full shadow cursor-ew-resize z-30 transition-all ${
+                  activeHandle === 'w' ? 'scale-150 bg-amber-300 ring-4 ring-amber-400/50 opacity-100' : 'opacity-40 group-hover/subtitle-box:opacity-100 hover:scale-125'
                 }`}
                 title="Drag left handle to change words per line (width)"
               />
@@ -880,10 +923,10 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
               <div
                 onMouseEnter={() => setIsHoveringWatermark(true)}
                 onMouseLeave={() => setIsHoveringWatermark(false)}
-                className={`absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-75 select-none z-20 group/watermark-box ${
+                className={`absolute -translate-x-1/2 -translate-y-1/2 transition-all duration-150 select-none z-20 group/watermark-box ${
                   activeWatermarkHandle || isHoveringWatermark
-                    ? 'ring-2 ring-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.35)] rounded-xl bg-slate-950/60'
-                    : 'ring-1 ring-cyan-400/50 hover:ring-cyan-400 rounded-xl bg-slate-950/30'
+                    ? 'ring-2 ring-cyan-400/80 shadow-[0_0_15px_rgba(6,182,212,0.2)] rounded-xl bg-slate-950/25 opacity-100'
+                    : 'ring-1 ring-cyan-400/20 hover:ring-cyan-400/60 rounded-xl bg-transparent opacity-30 hover:opacity-100'
                 }`}
                 style={{
                   left: `${watermarkXPercent}%`,
@@ -893,23 +936,23 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                 {/* Center Interactive Drag Area */}
                 <div
                   onPointerDown={e => handleWatermarkPointerDown(e, 'move')}
-                  className="cursor-move px-3 py-1.5 flex items-center justify-center min-w-[110px] min-h-[32px] rounded-xl border border-dashed border-cyan-400/70 hover:border-cyan-300"
+                  className="cursor-move px-2.5 py-1 flex items-center justify-center min-w-[80px] min-h-[26px] rounded-xl border border-dashed border-cyan-400/25 hover:border-cyan-300/60 transition-all"
                 >
-                  <div className="text-center font-bold text-cyan-300 text-xs flex items-center justify-center space-x-1.5 drop-shadow">
-                    <AtSign className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-                    <span className="truncate max-w-[180px] font-mono">{watermark.text}</span>
+                  <div className="text-center font-bold text-cyan-300/70 group-hover/watermark-box:text-cyan-300 text-xs flex items-center justify-center space-x-1 drop-shadow-sm transition-colors">
+                    <AtSign className="w-3 h-3 text-cyan-400/60 group-hover/watermark-box:text-cyan-400 shrink-0" />
+                    <span className="truncate max-w-[150px] font-mono text-[11px]">{watermark.text}</span>
                   </div>
                 </div>
 
                 {/* Floating Quick Action Mini-Toolbar */}
                 {(isHoveringWatermark || activeWatermarkHandle) && (
-                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-slate-900/95 backdrop-blur-md border border-cyan-500/50 rounded-xl p-1 shadow-2xl flex items-center space-x-1 z-30 text-white whitespace-nowrap">
+                  <div className="absolute -top-9 left-1/2 -translate-x-1/2 bg-slate-950/75 hover:bg-slate-950/90 backdrop-blur-md border border-cyan-500/30 rounded-xl p-1 shadow-xl flex items-center space-x-1 z-30 text-white whitespace-nowrap transition-colors">
                     <button
                       onClick={e => {
                         e.stopPropagation();
                         onChangeWatermark?.({ fontSize: Math.max(14, (watermark.fontSize || 28) - 2) });
                       }}
-                      className="p-1 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-cyan-400 transition-colors"
+                      className="p-1 hover:bg-slate-800/80 rounded-lg text-slate-300 hover:text-cyan-400 transition-colors"
                       title="Decrease Watermark Size (-2px)"
                     >
                       <Minus className="w-3 h-3" />
@@ -922,13 +965,13 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                         e.stopPropagation();
                         onChangeWatermark?.({ fontSize: Math.min(100, (watermark.fontSize || 28) + 2) });
                       }}
-                      className="p-1 hover:bg-slate-800 rounded-lg text-slate-300 hover:text-cyan-400 transition-colors"
+                      className="p-1 hover:bg-slate-800/80 rounded-lg text-slate-300 hover:text-cyan-400 transition-colors"
                       title="Increase Watermark Size (+2px)"
                     >
                       <Plus className="w-3 h-3" />
                     </button>
 
-                    <div className="w-px h-3 bg-slate-700 my-auto" />
+                    <div className="w-px h-3 bg-slate-700/60 my-auto" />
 
                     <button
                       onClick={e => {
@@ -965,29 +1008,29 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                 {/* Resize Corner Handles */}
                 <div
                   onPointerDown={e => handleWatermarkPointerDown(e, 'nw')}
-                  className={`absolute -top-1.5 -left-1.5 w-3.5 h-3.5 bg-cyan-400 hover:bg-cyan-300 border border-slate-950 rounded-full cursor-nwse-resize z-30 transition-transform ${
-                    activeWatermarkHandle === 'nw' ? 'scale-150 ring-2 ring-cyan-300' : 'hover:scale-125'
+                  className={`absolute -top-1.5 -left-1.5 w-3 h-3 bg-cyan-400/80 hover:bg-cyan-300 border border-slate-950 rounded-full cursor-nwse-resize z-30 transition-all ${
+                    activeWatermarkHandle === 'nw' ? 'scale-150 ring-2 ring-cyan-300 opacity-100' : 'opacity-40 group-hover/watermark-box:opacity-100 hover:scale-125'
                   }`}
                   title="Drag handle to resize watermark"
                 />
                 <div
                   onPointerDown={e => handleWatermarkPointerDown(e, 'ne')}
-                  className={`absolute -top-1.5 -right-1.5 w-3.5 h-3.5 bg-cyan-400 hover:bg-cyan-300 border border-slate-950 rounded-full cursor-nesw-resize z-30 transition-transform ${
-                    activeWatermarkHandle === 'ne' ? 'scale-150 ring-2 ring-cyan-300' : 'hover:scale-125'
+                  className={`absolute -top-1.5 -right-1.5 w-3 h-3 bg-cyan-400/80 hover:bg-cyan-300 border border-slate-950 rounded-full cursor-nesw-resize z-30 transition-all ${
+                    activeWatermarkHandle === 'ne' ? 'scale-150 ring-2 ring-cyan-300 opacity-100' : 'opacity-40 group-hover/watermark-box:opacity-100 hover:scale-125'
                   }`}
                   title="Drag handle to resize watermark"
                 />
                 <div
                   onPointerDown={e => handleWatermarkPointerDown(e, 'se')}
-                  className={`absolute -bottom-1.5 -right-1.5 w-3.5 h-3.5 bg-cyan-400 hover:bg-cyan-300 border border-slate-950 rounded-full cursor-nwse-resize z-30 transition-transform ${
-                    activeWatermarkHandle === 'se' ? 'scale-150 ring-2 ring-cyan-300' : 'hover:scale-125'
+                  className={`absolute -bottom-1.5 -right-1.5 w-3 h-3 bg-cyan-400/80 hover:bg-cyan-300 border border-slate-950 rounded-full cursor-nwse-resize z-30 transition-all ${
+                    activeWatermarkHandle === 'se' ? 'scale-150 ring-2 ring-cyan-300 opacity-100' : 'opacity-40 group-hover/watermark-box:opacity-100 hover:scale-125'
                   }`}
                   title="Drag handle to resize watermark"
                 />
                 <div
                   onPointerDown={e => handleWatermarkPointerDown(e, 'sw')}
-                  className={`absolute -bottom-1.5 -left-1.5 w-3.5 h-3.5 bg-cyan-400 hover:bg-cyan-300 border border-slate-950 rounded-full cursor-nesw-resize z-30 transition-transform ${
-                    activeWatermarkHandle === 'sw' ? 'scale-150 ring-2 ring-cyan-300' : 'hover:scale-125'
+                  className={`absolute -bottom-1.5 -left-1.5 w-3 h-3 bg-cyan-400/80 hover:bg-cyan-300 border border-slate-950 rounded-full cursor-nesw-resize z-30 transition-all ${
+                    activeWatermarkHandle === 'sw' ? 'scale-150 ring-2 ring-cyan-300 opacity-100' : 'opacity-40 group-hover/watermark-box:opacity-100 hover:scale-125'
                   }`}
                   title="Drag handle to resize watermark"
                 />
