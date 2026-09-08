@@ -22,7 +22,7 @@ import {
 import { AspectRatio, SubtitleBlock, SubtitleStyle, VideoFilter, PlatformPreset, VideoTransformSettings, WatermarkSettings, ProgressBarSettings, AudioSettings } from '../types';
 import { renderCanvasFrame, getTargetDimensions } from '../utils/canvasRenderer';
 import { SafeZoneOverlay } from './SafeZoneOverlay';
-import { detectSubjectFocalPoint } from '../utils/subjectDetector';
+import { detectSubjectFocalPoint, getCaptionSafeZone } from '../utils/subjectDetector';
 import { playSfx, unlockAudioContext } from '../utils/sfxSynthesizer';
 
 type ResizeHandle = 'move' | 'nw' | 'ne' | 'sw' | 'se' | 'n' | 's' | 'e' | 'w' | null;
@@ -629,6 +629,16 @@ export const VideoPlayerCanvas: React.FC<VideoPlayerCanvasProps> = ({
                 title="AI Smart Crop: Automatically detects subject/speaker and centers the crop"
               >
                 🎯 Smart Crop
+              </button>
+              <button
+                onClick={() => {
+                  const safeZone = getCaptionSafeZone(detectSubjectFocalPoint(videoRef.current));
+                  onStyleChange(safeZone);
+                }}
+                className="px-2 py-0.5 rounded-lg text-[11px] font-bold text-cyan-300 border border-cyan-500/40 hover:bg-cyan-500/15 transition-all"
+                title="Place captions away from the detected speaker or action region"
+              >
+                🛡️ Avoid Subject
               </button>
             </div>
           )}
