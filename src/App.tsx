@@ -53,6 +53,7 @@ import { generateSubtitleBlocksFromTranscript } from './utils/srtParser';
 import { getEmojiForWord } from './utils/emojiMap';
 import { clearSubtitleHighlights, applySmartAutoCaptionHighlights } from './utils/smartHighlighter';
 import { enrichSubtitleSemantics } from './utils/semanticEnrichment';
+import { detectBeatMarkers } from './utils/beatDetector';
 import { clearLayoutCache } from './utils/renderCore';
 import { correctSubtitleBlocks } from './utils/textCorrection';
 import { loadGoogleFont, preloadPopularGoogleFonts } from './utils/googleFonts';
@@ -169,6 +170,7 @@ export default function App() {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
   const [semanticCues, setSemanticCues] = useState<NonNullable<Project['semanticCues']>>([]);
+  const [beatMarkers, setBeatMarkers] = useState<NonNullable<Project['beatMarkers']>>([]);
 
   const enrichBlocks = (subtitleBlocks: SubtitleBlock[]): SubtitleBlock[] => {
     const enriched = enrichSubtitleSemantics(subtitleBlocks);
@@ -252,6 +254,7 @@ export default function App() {
     if (project.audioSettings) setAudioSettings(project.audioSettings);
     if (project.blocks) resetBlocks(project.blocks);
     setSemanticCues(project.semanticCues || []);
+    setBeatMarkers(project.beatMarkers || []);
 
     // Attempt to load associated video blob from IndexedDB
     try {
@@ -304,6 +307,7 @@ export default function App() {
       audioSettings,
       blocks,
       semanticCues,
+      beatMarkers,
       videoName: videoFile?.name || currentProject.videoName,
       videoDuration: duration || currentProject.videoDuration,
     };
@@ -357,6 +361,7 @@ export default function App() {
     videoFile,
     duration,
     semanticCues,
+    beatMarkers,
   ]);
 
   // Global Keyboard Shortcuts (Undo: Ctrl+Z, Redo: Ctrl+Y / Shift+Z, Save: Ctrl+S)
@@ -488,6 +493,8 @@ export default function App() {
       try {
         decodedBuffer = await decodeAudioFromFile(file);
         setAudioBuffer(decodedBuffer);
+        const detectedBeats = detectBeatMarkers(decodedBuffer);
+        setBeatMarkers(detectedBeats);
         const wf = await extractWaveformFromAudioBuffer(decodedBuffer, 800);
         setWaveform(wf);
       } catch (audioErr) {

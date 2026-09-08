@@ -71,6 +71,8 @@ Browser
 - `src/utils/subjectDetector.ts` provides heuristic focal analysis and
   caption-safe placement; MediaPipe face/pose tracking is the next accuracy
   upgrade.
+- `src/utils/beatDetector.ts` derives conservative onset markers for lyric
+  timing without changing word timestamps.
 - `src/utils/projectStorage.ts` is the persistence boundary.
 - `server.ts` currently owns API validation, Gemini model fallback, JSON
   normalization, and Vite/static serving.

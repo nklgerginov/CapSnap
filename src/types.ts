@@ -166,6 +166,11 @@ export interface SemanticCue {
   payload?: string;
 }
 
+export interface BeatMarker {
+  time: number;
+  strength: number;
+}
+
 export interface SubtitleStyle {
   fontFamily: string;
   fontSize: number; // in px on canvas relative to 1080p height
@@ -346,5 +351,6 @@ export interface Project {
   audioSettings: AudioSettings;
   blocks: SubtitleBlock[];
   semanticCues?: SemanticCue[];
+  beatMarkers?: BeatMarker[];
   thumbnail?: string;
 }

@@ -79,9 +79,9 @@ tracked rather than being represented by mocks.
 | --- | --- | --- |
 | Gemini semantic enrichment job | In progress | Stable `SemanticCue` contract and deterministic keyword/CTA/emoji/B-roll/SFX adapter exist; Gemini job integration remains |
 | MediaPipe face/pose tracking | In progress | Reusable subject focal analysis and one-click caption-safe placement exist; MediaPipe provider remains |
-| Beat-aware lyrics timing | Planned | Karaoke fills and pulses align to detected beat markers |
+| Beat-aware lyrics timing | In progress | Lightweight onset markers are generated and persisted; renderer/UI beat snapping remains |
 | CTA overlays | Planned | Ad themes support timed CTA cards with safe-zone validation |
-| B-roll and SFX cue tracks | Planned | Suggestions are editable timeline metadata, not destructive video changes |
+| B-roll and SFX cue tracks | In progress | Cue types are persisted separately from captions; dedicated cue editing UI remains |
 
 ## Phase 3: Cloud SaaS platform
 
