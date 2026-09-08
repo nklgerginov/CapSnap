@@ -6,6 +6,92 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
+type RawWord = {
+  text?: unknown;
+  start?: unknown;
+  end?: unknown;
+  emoji?: unknown;
+  colorOverride?: unknown;
+  isEmphasized?: unknown;
+  sentiment?: unknown;
+};
+
+type RawBlock = {
+  start?: unknown;
+  end?: unknown;
+  mood?: unknown;
+  suggestedEmoji?: unknown;
+  words?: unknown;
+};
+
+function finiteTime(value: unknown): number | null {
+  const time = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(time) && time >= 0 ? Math.round(time * 1000) / 1000 : null;
+}
+
+function normalizeGeminiBlocks(value: unknown): Array<Record<string, unknown>> {
+  if (!Array.isArray(value)) {
+    throw new Error("Gemini transcription response must be an array");
+  }
+
+  const normalized: Array<Record<string, unknown>> = [];
+  let previousBlockEnd = 0;
+  const generatedAt = Date.now();
+
+  value.forEach((rawBlock, blockIndex) => {
+    if (!rawBlock || typeof rawBlock !== "object") return;
+    const block = rawBlock as RawBlock;
+    const rawWords = Array.isArray(block.words) ? block.words : [];
+    const words: Array<Record<string, unknown>> = [];
+    let previousWordEnd = previousBlockEnd;
+
+    rawWords.forEach((rawWord, wordIndex) => {
+      if (!rawWord || typeof rawWord !== "object") return;
+      const word = rawWord as RawWord;
+      const text = typeof word.text === "string" ? word.text.trim() : "";
+      const start = finiteTime(word.start);
+      const end = finiteTime(word.end);
+      if (!text || start === null || end === null || end <= start) return;
+      if (start < previousWordEnd) return;
+
+      words.push({
+        id: `ai-word-${blockIndex}-${wordIndex}-${generatedAt}`,
+        text,
+        start,
+        end,
+        emoji: typeof word.emoji === "string" ? word.emoji : undefined,
+        colorOverride: typeof word.colorOverride === "string" ? word.colorOverride : undefined,
+        isEmphasized: word.isEmphasized === true,
+        sentiment: typeof word.sentiment === "string" ? word.sentiment : undefined,
+      });
+      previousWordEnd = end;
+    });
+
+    if (words.length === 0) return;
+    const start = finiteTime(block.start);
+    const end = finiteTime(block.end);
+    const blockStart = start === null ? Number(words[0].start) : start;
+    const blockEnd = end === null ? Number(words[words.length - 1].end) : end;
+    if (blockEnd <= blockStart || blockStart < previousBlockEnd) return;
+    if (Number(words[0].start) < blockStart || Number(words[words.length - 1].end) > blockEnd) return;
+
+    normalized.push({
+      id: `ai-block-${blockIndex}-${generatedAt}`,
+      start: blockStart,
+      end: blockEnd,
+      mood: typeof block.mood === "string" ? block.mood : undefined,
+      suggestedEmoji: typeof block.suggestedEmoji === "string" ? block.suggestedEmoji : undefined,
+      words,
+    });
+    previousBlockEnd = blockEnd;
+  });
+
+  if (normalized.length === 0) {
+    throw new Error("Gemini returned no valid timed speech");
+  }
+  return normalized;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -128,8 +214,6 @@ Format output as a JSON array of blocks:
       // Candidate multimodal models supporting structured JSON schemas with word-level audio alignment
       const CANDIDATE_MODELS = [
         "gemini-2.5-flash",
-        "gemini-3.7-flash",
-        "gemini-3.1-flash-lite",
         "gemini-2.5-flash-lite",
         "gemini-2.5-pro",
       ];
@@ -273,26 +357,7 @@ Format output as a JSON array of blocks:
         cleanJson = cleanJson.replace(/^```\s*/i, "").replace(/\s*```$/, "");
       }
 
-      let blocks = JSON.parse(cleanJson || "[]");
-
-      // Add unique IDs to blocks and words, preserving sentiment analysis and mood overlays
-      blocks = blocks.map((b: any, bIdx: number) => ({
-        id: `ai-block-${bIdx}-${Date.now()}`,
-        start: Number(b.start) || 0,
-        end: Number(b.end) || 0.5,
-        mood: b.mood ? String(b.mood) : undefined,
-        suggestedEmoji: b.suggestedEmoji ? String(b.suggestedEmoji) : undefined,
-        words: (b.words || []).map((w: any, wIdx: number) => ({
-          id: `ai-word-${bIdx}-${wIdx}-${Date.now()}`,
-          text: String(w.text || ""),
-          start: Number(w.start) || 0,
-          end: Number(w.end) || 0.3,
-          emoji: w.emoji ? String(w.emoji) : undefined,
-          colorOverride: w.colorOverride ? String(w.colorOverride) : undefined,
-          isEmphasized: Boolean(w.isEmphasized),
-          sentiment: w.sentiment ? String(w.sentiment) : undefined,
-        })),
-      }));
+      const blocks = normalizeGeminiBlocks(JSON.parse(cleanJson || "[]"));
 
       return res.json({ blocks });
     } catch (error: any) {
