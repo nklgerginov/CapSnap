@@ -9,6 +9,23 @@ from pathlib import Path
 from typing import Any
 
 
+def validate_subtitle_data(subtitle_data: dict[str, Any]) -> None:
+    """Reject malformed timing before it reaches ASS or FFmpeg."""
+    if not isinstance(subtitle_data, dict):
+        raise ValueError("subtitle data must be an object")
+    for block in subtitle_data.get("blocks", []):
+        words = block.get("words", [])
+        previous_end = 0.0
+        for word in words:
+            start = float(word["start"])
+            end = float(word["end"])
+            if start < 0 or end <= start:
+                raise ValueError("word timings must be positive and increasing")
+            if words and start < previous_end:
+                raise ValueError("word timings must not overlap")
+            previous_end = end
+
+
 def _ass_time(seconds: float) -> str:
     seconds = max(0.0, float(seconds))
     centiseconds = round(seconds * 100)
@@ -47,6 +64,7 @@ def _word_tag(word: dict[str, Any], style: dict[str, Any]) -> str:
 
 def build_ass(subtitle_data: dict[str, Any]) -> str:
     """Return an ASS document from a subtitle/style JSON payload."""
+    validate_subtitle_data(subtitle_data)
     style = subtitle_data.get("style", {})
     font = style.get("font_family", "Arial").split(",")[0].strip().strip('"')
     font_size = max(8, round(float(style.get("font_size", 54))))
@@ -85,8 +103,19 @@ def build_ass(subtitle_data: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_ffmpeg_command(input_path: str, output_path: str, ass_path: str) -> list[str]:
+def build_ffmpeg_command(
+    input_path: str,
+    output_path: str,
+    ass_path: str,
+    *,
+    preset: str = "veryfast",
+    crf: int = 18,
+) -> list[str]:
     """Build an argument-safe FFmpeg command for burned-in captions."""
+    if preset not in {"veryfast", "faster", "fast", "medium"}:
+        raise ValueError("unsupported FFmpeg preset")
+    if not 0 <= crf <= 51:
+        raise ValueError("CRF must be between 0 and 51")
     return [
         "ffmpeg",
         "-y",
@@ -97,9 +126,9 @@ def build_ffmpeg_command(input_path: str, output_path: str, ass_path: str) -> li
         "-c:v",
         "libx264",
         "-preset",
-        "fast",
+        preset,
         "-crf",
-        "18",
+        str(crf),
         "-c:a",
         "aac",
         "-movflags",

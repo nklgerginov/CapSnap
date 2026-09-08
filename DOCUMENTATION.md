@@ -35,7 +35,7 @@ transcription and rendering behind the existing adapters.
 | Persistence | IndexedDB with local-storage fallback | Implemented |
 | Server platform | Express + Vite middleware | Implemented |
 | Python/FastAPI workers | None | Planned |
-| FFmpeg/Remotion rendering | `services/render_service/render_plan.py` generates ASS and FFmpeg plans | Partial; execution/queueing planned |
+| FFmpeg/Remotion rendering | `services/render_service` validates requests and generates ASS/FFmpeg plans | Partial; execution/queueing planned |
 | S3/CloudFront delivery | None in the repository | Planned |
 | BullMQ/Celery jobs | None in the repository | Planned |
 
@@ -155,10 +155,11 @@ compatibility.
 
 ### Step 3: Rendering pipeline
 
-The first render-plan slice now converts normalized subtitle JSON into ASS
-captions and an argument-safe FFmpeg command. It supports word timing plus
-pop-in and karaoke tags while keeping the Canvas renderer as the instant-preview
-path. The remaining worker should execute this plan and add:
+The first render service now validates normalized subtitle JSON, converts it
+into ASS captions, and returns an argument-safe FFmpeg command through
+`POST /v1/render/plan`. It supports word timing plus pop-in and karaoke tags
+while keeping the Canvas renderer as the instant-preview path. The remaining
+worker should execute this plan and add:
 
 - split long jobs into bounded chunks where codec/keyframe constraints allow;
 - process chunks through a queue (Celery initially, or BullMQ if Node owns
