@@ -126,6 +126,9 @@ export async function transcribeVideoAudioWithAI(
           const autoEmoji = w.emoji || getEmojiForWord(w.text);
           return {
             ...w,
+            confidence: typeof w.confidence === 'number'
+              ? Math.max(0, Math.min(1, w.confidence))
+              : undefined,
             emoji: autoEmoji,
           };
         });

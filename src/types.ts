@@ -136,6 +136,7 @@ export interface SubtitleWord {
   text: string;
   start: number; // in seconds
   end: number;   // in seconds
+  confidence?: number; // 0 to 1 when provided by the transcription provider
   colorOverride?: string;
   emoji?: string;
   isEmphasized?: boolean;

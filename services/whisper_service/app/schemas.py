@@ -6,7 +6,7 @@ class TranscribeRequest(BaseModel):
     mimeType: Optional[str] = Field("audio/wav")
     language: Optional[str] = Field("auto")
     model: Optional[str] = Field(None)
-    wordsPerBlock: Optional[int] = Field(3)
+    wordsPerBlock: Optional[int] = Field(3, ge=1, le=12)
     ensureWordAlignment: Optional[bool] = Field(True)
 
 class Word(BaseModel):
@@ -14,7 +14,7 @@ class Word(BaseModel):
     text: str
     start: float
     end: float
-    confidence: Optional[float] = None
+    confidence: Optional[float] = Field(None, ge=0, le=1)
     emoji: Optional[str] = None
     isEmphasized: Optional[bool] = False
     colorOverride: Optional[str] = None
