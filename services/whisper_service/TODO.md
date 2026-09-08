@@ -7,3 +7,4 @@
 - [ ] Add Celery/RQ worker mode for long-running jobs
 - [ ] Add integration tests using small audio fixtures
 - [ ] Add example client and frontend integration notes
+- [x] Define shared word-level confidence output for frontend consumers
