@@ -39,6 +39,9 @@ def _ass_color(value: str, fallback: str = "&H00FFFFFF") -> str:
     value = value.strip().lstrip("#")
     if len(value) == 3:
         value = "".join(char * 2 for char in value)
+    if len(value) == 8:
+        red, green, blue, alpha = value[0:2], value[2:4], value[4:6], value[6:8]
+        return f"&H{alpha}{blue}{green}{red}".upper()
     if len(value) != 6:
         return fallback
     red, green, blue = value[0:2], value[2:4], value[4:6]

@@ -1,7 +1,7 @@
 # NovaCap Roadmap
 
 **Last updated:** September 2026  
-**Current phase:** Phase 1 - transcription, style contracts, and render planning
+**Current phase:** Phase 2 readiness - Phase 1 local pipeline complete
 
 This document is the working tracker for the NovaCap product roadmap. Status
 labels are deliberately conservative: a feature is not marked complete until

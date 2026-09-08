@@ -34,8 +34,8 @@ transcription and rendering behind the existing adapters.
 | Export | Canvas, WebCodecs, worker, GIF, SRT/VTT, and audio export paths | Implemented in-browser |
 | Persistence | IndexedDB with local-storage fallback | Implemented |
 | Server platform | Express + Vite middleware | Implemented |
-| Python/FastAPI workers | None | Planned |
-| FFmpeg/Remotion rendering | `services/render_service` validates requests and generates ASS/FFmpeg plans | Partial; execution/queueing planned |
+| Python/FastAPI workers | Whisper and render services under `services/` | Partial; production deployment and queueing planned |
+| FFmpeg/Remotion rendering | `services/render_service` validates requests, generates ASS/FFmpeg plans, and runs async jobs | Partial; durable queue/progress planned |
 | S3/CloudFront delivery | None in the repository | Planned |
 | BullMQ/Celery jobs | None in the repository | Planned |
 
@@ -116,6 +116,10 @@ incompatible style format.
    SRT/VTT and audio exports remain separate paths.
 
 ## Phase 1 roadmap
+
+The local Phase 1 implementation is complete. The remaining rows below are
+production-hardening or infrastructure items and are tracked separately from
+the working local pipeline.
 
 ### Step 1: Transcription pipeline
 

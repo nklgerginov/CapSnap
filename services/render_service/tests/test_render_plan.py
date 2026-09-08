@@ -30,3 +30,12 @@ def test_ffmpeg_command_uses_ass_filter_and_safe_arguments():
     assert command[0] == "ffmpeg"
     assert command[command.index("-vf") + 1] == "ass=filename='captions.ass'"
     assert command[-1] == "output clip.mp4"
+
+
+def test_build_ass_preserves_css_alpha_colors():
+    result = build_ass({
+        "style": {"primary_color": "#11223380"},
+        "blocks": [{"words": [{"text": "alpha", "start": 0, "end": 0.2}]}],
+    })
+
+    assert "Style: NovaCap,Arial,54,&H80332211" in result
