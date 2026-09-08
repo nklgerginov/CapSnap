@@ -1,7 +1,7 @@
 # NovaCap Roadmap
 
 **Last updated:** September 8, 2026
-**Current phase:** Phase 2 readiness - Phase 1 local pipeline complete
+**Current phase:** Phase 2 local editor release candidate
 
 This document is the working tracker for the NovaCap product roadmap. Status
 labels are deliberately conservative: a feature is not marked complete until
@@ -79,9 +79,18 @@ tracked rather than being represented by mocks.
 | --- | --- | --- |
 | Gemini semantic enrichment job | In progress | Stable `SemanticCue` contract and deterministic keyword/CTA/emoji/B-roll/SFX adapter exist; Gemini job integration remains |
 | MediaPipe face/pose tracking | In progress | Reusable subject focal analysis and one-click caption-safe placement exist; MediaPipe provider remains |
-| Beat-aware lyrics timing | In progress | Lightweight onset markers are generated and persisted; renderer/UI beat snapping remains |
-| CTA overlays | Planned | Ad themes support timed CTA cards with safe-zone validation |
-| B-roll and SFX cue tracks | In progress | Cue types are persisted separately from captions; dedicated cue editing UI remains |
+| Beat-aware lyrics timing | Done | Lightweight onset markers are generated, persisted, and visualized on the timeline without changing word timestamps |
+| CTA overlays | Done | Timed CTA cues render as safe-zone-aware high-contrast cards in the shared canvas renderer and remain editable |
+| B-roll and SFX cue tracks | Done | Cue types are persisted separately from captions and can be edited or removed in the Intelligence Tracks inspector |
+
+### Phase 2 exit note
+
+The local creator-intelligence scope is integrated: deterministic semantic cues,
+editable cue metadata, beat markers, safe-zone placement, and CTA preview
+rendering are persisted in projects and covered by the existing typecheck/build
+validation. MediaPipe remains an optional accuracy upgrade to the current
+heuristic subject detector; Gemini remains the production semantic provider
+behind the stable cue contract.
 
 ## Phase 3: Cloud SaaS platform
 

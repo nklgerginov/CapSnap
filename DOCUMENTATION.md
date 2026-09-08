@@ -73,6 +73,10 @@ Browser
   upgrade.
 - `src/utils/beatDetector.ts` derives conservative onset markers for lyric
   timing without changing word timestamps.
+- `src/components/SemanticCueInspector.tsx` exposes editable/removable
+  keyword, CTA, emoji, B-roll, and SFX metadata alongside beat-marker counts.
+- The shared canvas renderer draws active CTA cues as high-contrast cards in a
+  safe upper/lower region chosen to avoid the configured subtitle band.
 - `src/utils/projectStorage.ts` is the persistence boundary.
 - `server.ts` currently owns API validation, Gemini model fallback, JSON
   normalization, and Vite/static serving.
@@ -122,8 +126,10 @@ incompatible style format.
    path prepares 16 kHz mono audio for offline processing.
 4. Returned blocks are normalized with stable IDs and optional semantic fields.
 5. Audio-energy alignment and smart highlighting refine the subtitle blocks.
-6. Canvas preview renders the active words and effects at playback time.
-7. WebCodecs/workers export the result when browser support is available;
+6. Canvas preview renders the active words, effects, and timed CTA cues.
+7. Semantic cues and beat markers are persisted with the project and surfaced
+   in the Intelligence Tracks inspector and waveform timeline.
+8. WebCodecs/workers export the result when browser support is available;
    SRT/VTT and audio exports remain separate paths.
 
 ## Phase 1 roadmap

@@ -31,7 +31,7 @@ import {
   Redo2,
   Wand2,
 } from 'lucide-react';
-import { SubtitleBlock, VideoTransformSettings } from '../types';
+import { BeatMarker, SubtitleBlock, VideoTransformSettings } from '../types';
 import { computeAudioEnergyProfile, AudioEnergyProfile } from '../utils/audioAnalyzer';
 
 interface TimelineEditorProps {
@@ -39,6 +39,7 @@ interface TimelineEditorProps {
   currentTime: number;
   duration: number;
   waveform: number[];
+  beatMarkers?: BeatMarker[];
   audioBuffer?: AudioBuffer | null;
   onSeek: (time: number) => void;
   onUpdateBlock: (updated: SubtitleBlock, options?: { isContinuous?: boolean }) => void;
@@ -90,6 +91,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
   currentTime,
   duration,
   waveform,
+  beatMarkers = [],
   audioBuffer,
   onSeek,
   onUpdateBlock,
@@ -301,6 +303,18 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
         const endX = (interval.end / safeDuration) * parentWidth;
         ctx.fillRect(startX, waveYTop, Math.max(2, endX - startX), waveH);
       }
+
+      // Beat markers are deliberately drawn over the waveform so lyric timing
+      // can be reviewed without altering the underlying subtitle timestamps.
+      for (const marker of beatMarkers) {
+        const x = (marker.time / safeDuration) * parentWidth;
+        ctx.strokeStyle = `rgba(45, 212, 191, ${0.35 + marker.strength * 0.5})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, waveYTop);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
     }
 
     if (!waveform || waveform.length === 0) {
@@ -378,7 +392,7 @@ export const TimelineEditor: React.FC<TimelineEditorProps> = ({
         ctx.fill();
       }
     }
-  }, [waveform, zoomLevel, displayTime, safeDuration, waveformStyle, audioProfile]);
+  }, [waveform, zoomLevel, displayTime, safeDuration, waveformStyle, audioProfile, beatMarkers]);
 
   useEffect(() => {
     drawWaveform();

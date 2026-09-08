@@ -20,6 +20,7 @@ import { Header } from './components/Header';
 import { VideoPlayerCanvas } from './components/VideoPlayerCanvas';
 import { StylePanel } from './components/StylePanel';
 import { TimelineEditor } from './components/TimelineEditor';
+import { SemanticCueInspector } from './components/SemanticCueInspector';
 import { SubtitleManager } from './components/SubtitleManager';
 import { VideoExportModal } from './components/VideoExportModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
@@ -270,6 +271,7 @@ export default function App() {
         try {
           const decoded = await decodeAudioFromFile(file);
           setAudioBuffer(decoded);
+          if (!project.beatMarkers?.length) setBeatMarkers(detectBeatMarkers(decoded));
           const wf = await extractWaveformFromAudioBuffer(decoded, 800);
           setWaveform(wf);
         } catch {
@@ -338,6 +340,8 @@ export default function App() {
         progressBar,
         audioSettings,
         blocks,
+        semanticCues,
+        beatMarkers,
         videoName: videoFile?.name || currentProject.videoName,
         videoDuration: duration || currentProject.videoDuration,
       };
@@ -414,6 +418,8 @@ export default function App() {
     setVideoUrl(null);
     setAudioBuffer(null);
     setWaveform([]);
+    setSemanticCues([]);
+    setBeatMarkers([]);
     setCurrentTime(0);
     setDuration(0);
     setIsPlaying(false);
@@ -550,6 +556,7 @@ export default function App() {
         try {
           targetBuffer = await decodeAudioFromFile(videoFile);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (e) {
@@ -562,6 +569,7 @@ export default function App() {
           const tempAudioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
           targetBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (e) {
@@ -620,6 +628,7 @@ export default function App() {
         try {
           targetBuffer = await decodeAudioFromFile(videoFile);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (e) {
@@ -632,6 +641,7 @@ export default function App() {
           const tempAudioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
           targetBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (e) {
@@ -645,6 +655,7 @@ export default function App() {
         try {
           targetBuffer = createSyntheticAudioBuffer(fallbackDuration, 16000);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (synthErr) {
@@ -1091,6 +1102,7 @@ export default function App() {
             audioSettings={audioSettings}
             onTransformChange={updated => setTransform(prev => ({ ...prev, ...updated }))}
             onChangeWatermark={updated => setWatermark(prev => ({ ...prev, ...updated }))}
+            semanticCues={semanticCues}
           />
         </div>
 
@@ -1152,6 +1164,13 @@ export default function App() {
             onSeek={handleSeek}
             onForceSync={handleForceSyncCanvas}
           />
+          <SemanticCueInspector
+            cues={semanticCues}
+            beatMarkers={beatMarkers}
+            onChangeCue={cue => setSemanticCues(prev => prev.map(item => item.id === cue.id ? cue : item))}
+            onDeleteCue={cueId => setSemanticCues(prev => prev.filter(cue => cue.id !== cueId))}
+            onSeek={handleSeek}
+          />
         </div>
 
         {/* Bottom Full Row: Waveform & Subtitle Timeline Scrubber */}
@@ -1193,6 +1212,7 @@ export default function App() {
             currentTime={currentTime}
             duration={duration}
             waveform={waveform}
+            beatMarkers={beatMarkers}
             audioBuffer={audioBuffer}
             onSeek={handleSeek}
             transform={transform}
