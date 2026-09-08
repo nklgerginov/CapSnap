@@ -6,6 +6,7 @@ import wave
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.transcriber import Transcriber
 
 client = TestClient(app)
 
@@ -44,3 +45,9 @@ def test_transcribe_requires_optional_api_key(monkeypatch):
 def test_transcribe_rejects_invalid_base64():
     response = client.post("/api/transcribe/whisper", json={"audioBase64": "not base64!"})
     assert response.status_code == 400
+
+
+def test_model_aliases_resolve_to_downloadable_faster_whisper_models():
+    assert Transcriber.normalize_model_name("whisper-small") == "small"
+    assert Transcriber.normalize_model_name("large-v3-turbo") == "turbo"
+    assert Transcriber.normalize_model_name("not-a-model") is None

@@ -89,6 +89,10 @@ Browser
 - The Whisper service uses word timestamps, VAD padding, beam search, and
   monotonic timestamp normalization. Invalid base64 and oversized payloads are
   rejected before model work begins.
+- Whisper models are loaded lazily per requested model. With `faster-whisper`
+  installed, a missing selected model is downloaded on first use and cached;
+  the dummy backend is only a development fallback when the dependency itself
+  is unavailable.
 
 ## Core data contracts
 

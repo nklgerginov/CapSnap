@@ -29,7 +29,7 @@ def authorize(api_key: str | None) -> None:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "backend": transcriber.backend}
 
 @app.post("/api/transcribe/whisper")
 async def transcribe(req: TranscribeRequest, x_api_key: str | None = Header(default=None)):
@@ -55,8 +55,10 @@ async def transcribe(req: TranscribeRequest, x_api_key: str | None = Header(defa
             ensureWordAlignment=bool(req.ensureWordAlignment),
         )
 
-        return {"blocks": blocks}
+        return {"blocks": blocks, "backend": transcriber.backend, "model": req.model}
     except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         # Don't leak internal errors; log in real service

@@ -37,7 +37,7 @@ its implementation, integration, tests, and operational behavior are covered.
 | FastAPI Whisper service scaffold | Done | Health endpoint and transcription endpoint respond with the shared block/word contract |
 | Optional `faster-whisper` backend | Done | Uses model word timestamps when installed; deterministic fallback remains available |
 | Word confidence contract | Done | Confidence is validated from 0 to 1 and is preserved in frontend subtitle data |
-| Dedicated service frontend adapter | Done | `VITE_WHISPER_SERVICE_URL` is attempted after Gemini failure and before local fallback |
+| Dedicated service frontend adapter | Done | `VITE_WHISPER_SERVICE_URL` is attempted after Gemini failure and before local fallback, with selected model and optional API key |
 | Real audio fixture tests | In progress | Valid WAV fixture path and contract coverage exist; model-backed WAV fixture remains CI-dependent |
 | WhisperX alignment backend | Planned | Alignment improves word timing without changing the public response schema |
 | Auth, quotas, and rate limits | In progress | Optional API-key rejection is implemented; durable quotas/rate limits belong with the cloud gateway |

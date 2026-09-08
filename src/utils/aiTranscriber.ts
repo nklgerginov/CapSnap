@@ -95,7 +95,8 @@ export async function transcribeVideoAudioWithAI(
   audioBuffer: AudioBuffer,
   wordsPerBlock: number = 3,
   onStatusChange?: (status: string) => void,
-  language?: string
+  language?: string,
+  whisperModelId: string = 'whisper-small'
 ): Promise<SubtitleBlock[]> {
   const wavBase64 = audioBufferToWavBase64(audioBuffer);
   try {
@@ -193,6 +194,7 @@ export async function transcribeVideoAudioWithAI(
             mimeType: 'audio/wav',
             wordsPerBlock,
             language: language || 'auto',
+            model: whisperModelId,
             ensureWordAlignment: true,
           }),
         });

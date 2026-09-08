@@ -20,4 +20,11 @@ From the repo root:
      -d '{"audioBase64": "ZG9udGFjdCB5ZXQ=", "mimeType": "audio/wav", "wordsPerBlock": 3}'
 
 Notes:
-- This scaffold provides a deterministic dummy transcriber. Replace app/transcriber.py with a real WhisperX or faster-whisper integration.
+- `faster-whisper` is the production backend. Models are downloaded lazily
+  into the faster-whisper cache when the requested model is first used.
+- Set `WHISPER_MODEL`, `WHISPER_DEVICE`, and `WHISPER_COMPUTE_TYPE` to control
+  the default model and hardware. A request can override the model with
+  `whisper-tiny`, `whisper-base`, `whisper-small`, `whisper-medium`,
+  `whisper-large-v3`, or `whisper-large-v3-turbo`.
+- The deterministic dummy response is only available when faster-whisper is
+  not installed and is not suitable for production accuracy.
