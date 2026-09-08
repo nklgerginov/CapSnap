@@ -116,13 +116,15 @@ def build_ffmpeg_command(
         raise ValueError("unsupported FFmpeg preset")
     if not 0 <= crf <= 51:
         raise ValueError("CRF must be between 0 and 51")
+    filter_path = ass_path.replace("\\", "/").replace(":", r"\:")
+    filter_path = filter_path.replace("'", r"\'")
     return [
         "ffmpeg",
         "-y",
         "-i",
         input_path,
         "-vf",
-        f"ass={ass_path}",
+        f"ass=filename='{filter_path}'",
         "-c:v",
         "libx264",
         "-preset",

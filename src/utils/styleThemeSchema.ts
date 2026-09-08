@@ -12,6 +12,45 @@ export interface StyleThemeDocument {
   emoji_enabled: boolean;
 }
 
+export const CANONICAL_STYLE_THEMES: Record<string, StyleThemeDocument> = {
+  gaming: {
+    schema_version: 1,
+    font_family: '"Chakra Petch", sans-serif',
+    font_size: 60,
+    primary_color: '#FFFFFF',
+    highlight_color: '#00F0FF',
+    animation_type: 'shake',
+    emoji_enabled: true,
+  },
+  podcast: {
+    schema_version: 1,
+    font_family: '"Plus Jakarta Sans", sans-serif',
+    font_size: 54,
+    primary_color: '#FFFFFF',
+    highlight_color: '#22C55E',
+    animation_type: 'pop',
+    emoji_enabled: false,
+  },
+  ads: {
+    schema_version: 1,
+    font_family: 'Montserrat, sans-serif',
+    font_size: 62,
+    primary_color: '#FFFFFF',
+    highlight_color: '#FFE600',
+    animation_type: 'bento_box',
+    emoji_enabled: true,
+  },
+  lyrics: {
+    schema_version: 1,
+    font_family: 'Poppins, sans-serif',
+    font_size: 52,
+    primary_color: '#FFFFFF',
+    highlight_color: '#FF007F',
+    animation_type: 'karaoke',
+    emoji_enabled: false,
+  },
+};
+
 const HEX_COLOR_PATTERN = /^#(?:[0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 
 export function styleToThemeDocument(style: SubtitleStyle): StyleThemeDocument {

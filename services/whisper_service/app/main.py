@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import base64
 import os
@@ -20,12 +20,19 @@ app.add_middleware(
 
 transcriber = Transcriber()
 
+
+def authorize(api_key: str | None) -> None:
+    expected = os.getenv("NOVACAP_WHISPER_API_KEY")
+    if expected and api_key != expected:
+        raise HTTPException(status_code=401, detail="Invalid Whisper API key")
+
 @app.get("/health")
 async def health():
     return {"status": "ok"}
 
 @app.post("/api/transcribe/whisper")
-async def transcribe(req: TranscribeRequest):
+async def transcribe(req: TranscribeRequest, x_api_key: str | None = Header(default=None)):
+    authorize(x_api_key)
     # Basic validation
     if not req.audioBase64:
         raise HTTPException(status_code=400, detail="audioBase64 is required")

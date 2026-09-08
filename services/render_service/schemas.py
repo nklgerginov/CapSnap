@@ -15,3 +15,11 @@ class RenderRequest(BaseModel):
 class RenderPlanResponse(BaseModel):
     ass: str
     command: list[str]
+
+
+class RenderJobResponse(BaseModel):
+    id: str
+    status: str
+    progress: int
+    output_path: str
+    error: str | None = None

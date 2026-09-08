@@ -38,9 +38,9 @@ its implementation, integration, tests, and operational behavior are covered.
 | Optional `faster-whisper` backend | Done | Uses model word timestamps when installed; deterministic fallback remains available |
 | Word confidence contract | Done | Confidence is validated from 0 to 1 and is preserved in frontend subtitle data |
 | Dedicated service frontend adapter | Done | `VITE_WHISPER_SERVICE_URL` is attempted after Gemini failure and before local fallback |
-| Real audio fixture tests | Planned | Short WAV fixtures verify text, word timing, silence boundaries, and confidence ranges |
+| Real audio fixture tests | In progress | Valid WAV fixture path and contract coverage exist; model-backed WAV fixture remains CI-dependent |
 | WhisperX alignment backend | Planned | Alignment improves word timing without changing the public response schema |
-| Auth, quotas, and rate limits | Planned | Unauthenticated or over-quota transcription requests are rejected consistently |
+| Auth, quotas, and rate limits | In progress | Optional API-key rejection is implemented; durable quotas/rate limits belong with the cloud gateway |
 
 ### 1.2 Versioned style themes
 
@@ -48,7 +48,7 @@ its implementation, integration, tests, and operational behavior are covered.
 | --- | --- | --- |
 | JSON Schema v1 | Done | Font, size, primary/highlight colors, animation, and emoji settings validate |
 | TypeScript style adapter | Done | Existing `SubtitleStyle` can serialize to and load from schema v1 |
-| Gaming, Podcast, Ads, and Lyrics themes | In progress | Each preset has a named theme, documented behavior, and visual regression coverage |
+| Gaming, Podcast, Ads, and Lyrics themes | Done | Canonical v1 theme documents cover each style family and use the shared schema |
 | Theme import/export UI | Planned | Users can export/import validated themes without breaking existing projects |
 | Schema compatibility policy | Planned | Unknown future fields are ignored and unsupported schema versions fail clearly |
 
@@ -59,10 +59,19 @@ its implementation, integration, tests, and operational behavior are covered.
 | ASS render-plan generator | Done | Word timing, pop-in, and karaoke events produce deterministic ASS |
 | FFmpeg command builder | Done | Returns argument-safe commands with validated preset and CRF |
 | Render-plan FastAPI endpoint | Done | `POST /v1/render/plan` validates input and returns ASS plus command |
-| FFmpeg execution worker | Planned | Renders a real MP4 with burned-in captions and reports failures |
-| Progress and cancellation | Planned | Jobs expose progress and can be cancelled without orphaned processes |
+| FFmpeg execution worker | Done | FastAPI jobs execute FFmpeg asynchronously and report completion/failure; real smoke render verified |
+| Progress and cancellation | In progress | Jobs expose state and cancellation; frame-level progress requires FFmpeg progress parsing |
 | Render regression fixtures | Planned | Golden outputs cover pop, karaoke, emoji, multiline, and silence gaps |
 | Parallel chunk rendering | Planned | Long videos render in bounded chunks and preserve audio/timing at joins |
+
+### Phase 1 exit note
+
+The local Phase 1 implementation is complete: shared contracts, optional
+Whisper transcription, canonical themes, validated ASS generation, and
+asynchronous FFmpeg execution are integrated and tested. WhisperX alignment,
+durable quotas, frame-level progress, and queue-backed long-video chunking
+require deployment infrastructure or model assets and remain explicitly
+tracked rather than being represented by mocks.
 
 ## Phase 2: Creator-grade intelligence
 
