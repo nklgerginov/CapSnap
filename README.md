@@ -1,105 +1,91 @@
-# CapSnap (NovaCap Studio)
+# NovaCap Studio
 
-> AI-Powered Kinetic Subtitle Editor for Social Media Videos
+> High-impact, browser-first captions for short-form video.
 
-[![React](https://img.shields.io/badge/React-19-61DAFB.svg)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6.svg)](https://typescriptlang.org)
-[![Vite](https://img.shields.io/badge/Vite-6-646CFF.svg)](https://vitejs.dev)
+NovaCap Studio (the CapSnap repository) is a React and TypeScript editor for
+creating burned-in social video captions. It combines Gemini-assisted
+transcription, a local Whisper.cpp-style fallback, word-level timing edits,
+kinetic canvas rendering, audio analysis, and client-side export.
 
-CapSnap (NovaCap Studio) is a web application that uses Google Gemini AI to automatically transcribe video audio and generate professionally styled, animated subtitles for TikTok, Instagram Reels, YouTube Shorts, and other social media platforms.
+## Current status
 
-## Screenshot
+This repository is **Phase 0 / editor foundation**. The production-grade
+Python/FastAPI worker service, FFmpeg render farm, cloud object storage, and
+MediaPipe face tracking described in the product vision are planned but are
+not part of the current application. See
+[DOCUMENTATION.md](./DOCUMENTATION.md) for the audited architecture and Phase
+1 implementation plan.
 
-![CapSnap Application Screenshot](https://via.placeholder.com/800x600/1a1a2e/ffffff?text=CapSnap+Screenshot)
-*Main interface showing video editor with kinetic subtitles*
+## What works today
 
-## Features
+- Upload MP4, WebM, and MOV video and preview it in a responsive editor.
+- Generate captions with Gemini through the Express API, or use the
+  browser-side offline transcription path.
+- Edit subtitle blocks and individual word boundaries on an interactive
+  timeline with undo/redo and auto-save.
+- Apply platform presets, custom Google Fonts, word highlighting, emoji
+  suggestions, speaker labels, safe-zone overlays, filters, watermarks, and
+  progress bars.
+- Render kinetic caption effects on Canvas, including pop, karaoke, glow,
+  glitch, shake, and many visual effect presets.
+- Export MP4/WebM/GIF/SRT/VTT/WAV/MP3 through browser APIs and workers when
+  supported by the browser.
+- Save projects and source video blobs locally with IndexedDB.
 
-### Core Capabilities
-- AI-Powered Transcription using Google Gemini
-- Kinetic Subtitles with 20+ animation effects
-- Multi-Platform Support (TikTok, Instagram, YouTube)
-- Real-time Preview
-- Advanced Styling
-- Audio Waveform Analysis
-- Project Management
-- Offline fallback
-
-### Editing Tools
-- Timeline-based editing
-- Drag-and-drop
-- Word-level adjustments
-- Undo/redo
-
-### Styling
-- Google Fonts integration
-- Custom colors and animations
-- Smart highlighting
-- Emoji support
-
-### Export
-- MP4 with burned-in subtitles
-- GIF export
-- SRT/WebVTT export
-- Multiple quality settings
-
-## Quick Start
+## Quick start
 
 ### Prerequisites
+
 - Node.js 18+
-- npm 9+ or yarn 1.22+
-- Google Gemini API Key
+- npm 9+ (or an equivalent package manager)
+- A Gemini API key for cloud transcription
+- A browser with Canvas, Web Audio, IndexedDB, and preferably WebCodecs
 
-### Installation
-1. Clone: git clone https://github.com/nklgerginov/CapSnap.git
-2. Install: npm install
-3. Configure: cp .env.example .env, add GEMINI_API_KEY
-4. Start: npm run dev
-5. Open: http://localhost:3000
+### Install and run
 
-## Usage
+```bash
+npm install
+copy .env.example .env
+# Set GEMINI_API_KEY in .env
+npm run dev
+```
 
-1. Upload video (MP4, WebM, MOV)
-2. AI transcribes automatically
-3. Edit subtitles in timeline
-4. Style with presets or custom settings
-5. Add effects (filters, watermark, progress bar)
-6. Export as MP4 or GIF
+Open <http://localhost:3000>.
 
-## Platform Presets
+Useful commands:
 
-| Platform | Aspect Ratio | Duration |
-|----------|--------------|----------|
-| TikTok | 9:16 | 15-60s |
-| Instagram | 9:16 | 15-90s |
-| YouTube Shorts | 9:16 | 15-60s |
-| Facebook | 9:16 | 15-90s |
+```bash
+npm run lint   # TypeScript validation
+npm run build  # Vite client build and bundled server build
+npm start      # Run the production bundle
+```
 
-## Keyboard Shortcuts
+## Product direction
 
-| Shortcut | Action |
-|----------|--------|
-| Ctrl+S | Save |
-| Ctrl+Z | Undo |
-| Ctrl+Y | Redo |
-| Space | Play/Pause |
+The target experience is a premium creator studio with four style families:
+**Gaming** (neon, jitter, impact scaling), **Podcasts** (legible pop-in and
+keyword color), **Ads** (high-contrast CTA layouts), and **Lyrics**
+(karaoke-fill and rhythm-aware motion). The next implementation step is to
+formalize a shared style-theme schema and move heavy transcription/rendering
+into isolated workers without regressing the fast local editor experience.
 
-## Tech Stack
+## Repository map
 
-- React 19, TypeScript
-- Vite 6, Tailwind CSS v4
-- Express.js, Google GenAI SDK
-- Web Audio API, Canvas API
+| Path | Responsibility |
+| --- | --- |
+| `src/App.tsx` | Application orchestration and project state |
+| `src/components/` | Preview, style panel, timeline, captions, and export UI |
+| `src/utils/whisperEngine.ts` | Local audio preparation, model selection, and offline path |
+| `src/utils/aiTranscriber.ts` | Gemini request/response adapter |
+| `src/utils/renderCore.ts` | Canvas subtitle and visual-effect renderer |
+| `src/utils/webcodecsExporter.ts` | Browser export and hardware encoder path |
+| `src/utils/projectStorage.ts` | IndexedDB project persistence |
+| `server.ts` | Express development server and `/api/transcribe` |
 
 ## Documentation
 
-Complete documentation: [DOCUMENTATION.md](./DOCUMENTATION.md)
+- [Audited architecture and roadmap](./DOCUMENTATION.md)
 
 ## License
 
-Proprietary Software - All rights reserved
-
----
-
-Made with AI
-*Version 1.0.0 - August 2026*
+Proprietary Software - All rights reserved.
