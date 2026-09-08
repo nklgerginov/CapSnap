@@ -10,9 +10,9 @@ NovaCap is currently a browser-first caption editor, not yet a distributed
 video SaaS platform. The existing product has a useful editing foundation:
 Gemini transcription, an offline transcription path, word-level subtitle data,
 rich canvas effects, timeline manipulation, local project persistence, and
-browser export. The main architectural gap is that heavy processing is still
-client-side and the transcription API uses Express/Gemini rather than the
-planned Python/FastAPI and Whisper v3/AssemblyAI pipeline.
+browser export. A local Python service layer now adds optional Whisper
+transcription and asynchronous FFmpeg rendering, but durable queues, cloud
+storage, and production deployment are not yet present.
 
 The safest evolution is incremental: preserve the responsive local editor,
 define a stable subtitle/style contract, then introduce worker-backed
@@ -25,7 +25,7 @@ transcription and rendering behind the existing adapters.
 | Editor UI | React 19, TypeScript, Vite, Tailwind, Motion/Lucide UI | Implemented |
 | Cloud transcription | Express `POST /api/transcribe` calling Gemini multimodal models | Implemented |
 | Offline transcription | Browser audio resampling, acoustic/VAD analysis, Whisper.cpp-style adapter and fallback | Implemented, validate accuracy before production claims |
-| Word timing | `SubtitleWord` with `start`, `end`, emphasis, sentiment, color, and emoji | Implemented |
+| Word timing | `SubtitleWord` with `start`, `end`, confidence, emphasis, sentiment, color, and emoji | Implemented |
 | Style system | `SubtitleStyle`, `PresetTheme`, platform presets, Google Fonts | Implemented |
 | Vibe effects | Canvas renderer with pop, karaoke, glow, shake, glitch, and extensive effect presets | Implemented |
 | Semantic enrichment | Gemini sentiment/mood fields plus local keyword highlighting and emoji map | Implemented |
@@ -50,8 +50,11 @@ Browser
   ├─ IndexedDB project/video storage
   └─ WebCodecs / worker export
           │
-          └── Express server
-                └── Gemini multimodal transcription (/api/transcribe)
+          ├── Express server
+          │     └── Gemini multimodal transcription (/api/transcribe)
+          └── FastAPI services
+                ├── Whisper word timing (/api/transcribe/whisper)
+                └── FFmpeg render plans/jobs (/v1/render/*)
 ```
 
 ### Important boundaries
@@ -77,6 +80,7 @@ interface SubtitleWord {
   text: string;
   start: number;
   end: number;
+  confidence?: number;
   colorOverride?: string;
   emoji?: string;
   isEmphasized?: boolean;
