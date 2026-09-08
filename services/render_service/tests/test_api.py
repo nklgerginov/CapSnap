@@ -37,6 +37,14 @@ def test_render_plan_endpoint_rejects_overlapping_words():
     assert response.status_code == 422
 
 
+def test_render_plan_endpoint_rejects_malformed_block_structure():
+    payload = _request()
+    payload["subtitles"] = {"blocks": [{"words": "not-an-array"}]}
+    response = client.post("/v1/render/plan", json=payload)
+
+    assert response.status_code == 422
+
+
 def test_render_jobs_require_configured_api_key(monkeypatch):
     monkeypatch.setenv("NOVACAP_RENDER_API_KEY", "secret")
     response = client.post("/v1/render/jobs", json=_request())

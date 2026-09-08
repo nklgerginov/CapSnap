@@ -70,3 +70,12 @@ def test_build_ass_rejects_overlapping_word_timings():
                 ],
             }],
         })
+
+
+def test_build_ass_rejects_non_finite_timings():
+    with pytest.raises(ValueError, match="finite"):
+        build_ass({
+            "blocks": [{
+                "words": [{"text": "bad", "start": float("nan"), "end": 1}],
+            }],
+        })
