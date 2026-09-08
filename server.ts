@@ -96,8 +96,8 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
-  // Middleware for JSON body parsing (50MB limit for audio base64)
-  app.use(express.json({ limit: "50mb" }));
+  // Keep the proxy limit aligned with the Whisper service's payload limit.
+  app.use(express.json({ limit: "250mb" }));
 
   // API Routes
   app.get("/api/health", (_req, res) => {
