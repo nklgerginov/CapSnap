@@ -42,8 +42,8 @@ async def transcribe(req: TranscribeRequest, x_api_key: str | None = Header(defa
         decoded = base64.b64decode(req.audioBase64, validate=True)
     except (ValueError, binascii.Error):
         raise HTTPException(status_code=400, detail="audioBase64 is not valid base64")
-    if len(decoded) > 250 * 1024 * 1024:
-        raise HTTPException(status_code=413, detail="audio payload exceeds 250 MB limit")
+    if len(decoded) > 750 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="audio payload exceeds 750 MB limit")
 
     try:
         blocks = await transcriber.transcribe_base64(

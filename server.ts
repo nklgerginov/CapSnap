@@ -97,7 +97,7 @@ async function startServer() {
   const PORT = 3000;
 
   // Keep the proxy limit aligned with the Whisper service's payload limit.
-  app.use(express.json({ limit: "250mb" }));
+  app.use(express.json({ limit: "750mb" }));
 
   // API Routes
   app.get("/api/health", (_req, res) => {
