@@ -48,7 +48,6 @@ import {
   refineSubtitleSyncWithAudioEnergy,
 } from './utils/audioAnalyzer';
 import { transcribeAudioOffline } from './utils/speechTranscriber';
-import { createSyntheticAudioBuffer } from './utils/whisperEngine';
 import { transcribeVideoAudioWithAI } from './utils/aiTranscriber';
 import { generateSubtitleBlocksFromTranscript } from './utils/srtParser';
 import { getEmojiForWord } from './utils/emojiMap';
@@ -518,24 +517,21 @@ export default function App() {
 
         if (aiBlocks.length > 0) {
           aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, decodedBuffer);
-        } else {
-          aiBlocks = await transcribeAudioOffline(decodedBuffer, style.maxWordsPerLine || 3);
         }
       } else {
-        const targetDuration = duration || 10;
-        const defaultText = 'Welcome to AutoCap Studio! Create viral video shorts with animated kinetic subtitles.';
-        aiBlocks = generateSubtitleBlocksFromTranscript(defaultText, targetDuration, style.maxWordsPerLine || 3);
+        throw new Error('No audio track is available for transcription');
+      }
+      if (aiBlocks.length === 0) {
+        throw new Error('No transcription blocks returned by the configured providers');
       }
 
       const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: aiBlocks }));
       resetBlocks(highlightedBlocks);
     } catch (err) {
-      console.warn('Video subtitle generation fallback error:', err);
-      const targetDuration = duration || 10;
-      const defaultText = 'Welcome to AutoCap Studio! Create viral video shorts with animated kinetic subtitles.';
-      const backupBlocks = generateSubtitleBlocksFromTranscript(defaultText, targetDuration, style.maxWordsPerLine || 3);
-      const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: backupBlocks }));
-      resetBlocks(highlightedBlocks);
+      console.warn('Video subtitle generation failed:', err);
+      resetBlocks([]);
+      setProjectToastMsg('Transcription failed. Check Gemini access or start the Whisper service.');
+      setTimeout(() => setProjectToastMsg(null), 5000);
     } finally {
       setIsTranscribing(false);
       setTimeout(() => setTranscribeStatus(null), 4000);
@@ -589,13 +585,12 @@ export default function App() {
 
         if (aiBlocks.length > 0) {
           aiBlocks = refineSubtitleSyncWithAudioEnergy(aiBlocks, targetBuffer);
-        } else {
-          aiBlocks = await transcribeAudioOffline(targetBuffer, style.maxWordsPerLine || 3);
         }
       } else {
-        const targetDuration = duration || 10;
-        const defaultText = "Welcome to AutoCap Studio! Create viral video shorts with animated kinetic subtitles.";
-        aiBlocks = generateSubtitleBlocksFromTranscript(defaultText, targetDuration, style.maxWordsPerLine || 3);
+        throw new Error('No audio track is available for transcription');
+      }
+      if (aiBlocks.length === 0) {
+        throw new Error('No transcription blocks returned by the configured providers');
       }
 
       const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: aiBlocks }));
@@ -604,13 +599,10 @@ export default function App() {
       setTimeout(() => setProjectToastMsg(null), 3500);
     } catch (err) {
       console.error('Manual AI Transcription error:', err);
-      if (audioBuffer) {
-        const offlineBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLine || 3);
-        const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: offlineBlocks }));
-        resetBlocks(highlightedBlocks);
-        setProjectToastMsg(`Created ${highlightedBlocks.length} offline speech blocks.`);
-        setTimeout(() => setProjectToastMsg(null), 3500);
-      }
+      setProjectToastMsg(audioBuffer
+        ? 'Transcription failed. Start the Whisper service or restore Gemini access.'
+        : 'Transcription failed. No audio track is available.');
+      setTimeout(() => setProjectToastMsg(null), 5000);
     } finally {
       setIsTranscribing(false);
       setTimeout(() => setTranscribeStatus(null), 4000);
@@ -649,18 +641,9 @@ export default function App() {
         }
       }
 
-      // If still no buffer (e.g. video has no audio or testing mode), generate synthetic speech buffer
+      // A missing audio track is an error, not a reason to invent transcript text.
       if (!targetBuffer) {
-        const fallbackDuration = duration > 0 ? duration : (videoRef.current?.duration || 12);
-        try {
-          targetBuffer = createSyntheticAudioBuffer(fallbackDuration, 16000);
-          setAudioBuffer(targetBuffer);
-          setBeatMarkers(detectBeatMarkers(targetBuffer));
-          const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
-          setWaveform(wf);
-        } catch (synthErr) {
-          console.warn('Could not create synthetic audio buffer:', synthErr);
-        }
+        throw new Error('No audio track is available for Whisper transcription');
       }
 
       let offlineBlocks: SubtitleBlock[] = [];
@@ -676,14 +659,6 @@ export default function App() {
 
       // Explicit validation check to log the result immediately after execution
       console.log(`[Whisper.cpp] transcribeAudioOffline returned ${offlineBlocks?.length ?? 0} blocks:`, offlineBlocks);
-
-      if (!offlineBlocks || offlineBlocks.length === 0) {
-        console.warn('[Whisper.cpp] No blocks generated from audio buffer, generating fallback synthetic speech blocks...');
-        const targetDuration = duration > 0 ? duration : (videoRef.current?.duration || 12);
-        const synth = createSyntheticAudioBuffer(targetDuration, 16000);
-        offlineBlocks = await transcribeAudioOffline(synth, style.maxWordsPerLine || 3, language, undefined, modelId);
-        console.log(`[Whisper.cpp] Fallback generated ${offlineBlocks.length} blocks:`, offlineBlocks);
-      }
 
       if (offlineBlocks && offlineBlocks.length > 0) {
         const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: offlineBlocks }));
@@ -704,8 +679,8 @@ export default function App() {
         setTimeout(() => setProjectToastMsg(null), 3500);
         return highlightedBlocks;
       } else {
-        console.warn('[Whisper.cpp] Transcription produced 0 blocks after fallback check.');
-        setProjectToastMsg('Whisper.cpp: No speech detected in audio.');
+        console.warn('[Whisper.cpp] Transcription produced 0 blocks.');
+        setProjectToastMsg('Whisper transcription unavailable. Start the Whisper service and try again.');
         setTimeout(() => setProjectToastMsg(null), 3500);
         return [];
       }

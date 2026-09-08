@@ -93,6 +93,8 @@ Browser
   installed, a missing selected model is downloaded on first use and cached;
   the dummy backend is only a development fallback when the dependency itself
   is unavailable.
+- The application never fabricates transcript words when all providers fail;
+  it reports the failure and leaves the caption timeline unchanged.
 
 ## Core data contracts
 
@@ -236,6 +238,8 @@ Required environment variable:
 - `GEMINI_API_KEY`: server-side Gemini API access.
 - `VITE_WHISPER_SERVICE_URL`: optional URL for the dedicated FastAPI Whisper
   service. It is used only after Gemini fails and before local transcription.
+- `WHISPER_SERVICE_URL`: server-side Whisper URL used by the same-origin proxy;
+  defaults to `http://127.0.0.1:8080`.
 
 Development commands:
 

@@ -1,5 +1,4 @@
 import { SubtitleBlock } from '../types';
-import { transcribeAudioOffline } from './speechTranscriber';
 import { applySmartAutoCaptionHighlights, detectBlockMoodAndEmoji } from './smartHighlighter';
 import { getEmojiForWord } from './emojiMap';
 import { correctSubtitleBlocks } from './textCorrection';
@@ -178,14 +177,17 @@ export async function transcribeVideoAudioWithAI(
       env?: Record<string, string | undefined>;
     }).env;
     const remoteWhisperUrl = runtimeEnv?.VITE_WHISPER_SERVICE_URL;
-    if (remoteWhisperUrl) {
+    {
       try {
         if (onStatusChange) onStatusChange('Transcribing with dedicated Whisper service...');
-        const whisperResponse = await fetch(`${remoteWhisperUrl.replace(/\/$/, '')}/api/transcribe/whisper`, {
+        const whisperEndpoint = remoteWhisperUrl
+          ? `${remoteWhisperUrl.replace(/\/$/, '')}/api/transcribe/whisper`
+          : '/api/transcribe/whisper';
+        const whisperResponse = await fetch(whisperEndpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...(runtimeEnv?.VITE_WHISPER_SERVICE_API_KEY
+            ...(remoteWhisperUrl && runtimeEnv?.VITE_WHISPER_SERVICE_API_KEY
               ? { 'X-API-Key': runtimeEnv.VITE_WHISPER_SERVICE_API_KEY }
               : {}),
           },
@@ -214,33 +216,6 @@ export async function transcribeVideoAudioWithAI(
       }
     }
 
-    const offlineBlocks = await transcribeAudioOffline(
-      audioBuffer,
-      wordsPerBlock,
-      language || 'auto',
-      (_prog, stage) => {
-        if (onStatusChange) onStatusChange(stage);
-      }
-    );
-    
-    // Enrich offline blocks with sentiment analysis and mood emoji suggestions
-    const sentimentEnriched = offlineBlocks.map(block => {
-      const fullText = block.words.map(w => w.text).join(' ');
-      const detected = detectBlockMoodAndEmoji(fullText);
-      return {
-        ...block,
-        mood: detected.mood,
-        suggestedEmoji: detected.emoji,
-      };
-    });
-
-    const highlighted = applySmartAutoCaptionHighlights({
-      blocks: sentimentEnriched,
-      highlightColor: '#FFE600',
-      forceAtLeastOnePerBlock: true,
-    });
-
-    const { updatedBlocks } = correctSubtitleBlocks(highlighted);
-    return updatedBlocks;
+    throw new Error('No transcription provider returned speech blocks');
   }
 }

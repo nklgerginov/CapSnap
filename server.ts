@@ -18,6 +18,36 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  // Same-origin proxy for the dedicated Whisper service. Keeping this behind
+  // Express avoids browser CORS issues and keeps the service key server-side.
+  app.post("/api/transcribe/whisper", async (req, res) => {
+    const whisperUrl = (process.env.WHISPER_SERVICE_URL || process.env.VITE_WHISPER_SERVICE_URL || "http://127.0.0.1:8080").replace(/\/$/, "");
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15 * 60 * 1000);
+    try {
+      const response = await fetch(`${whisperUrl}/api/transcribe/whisper`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(process.env.NOVACAP_WHISPER_API_KEY
+            ? { "X-API-Key": process.env.NOVACAP_WHISPER_API_KEY }
+            : {}),
+        },
+        body: JSON.stringify(req.body),
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      res.status(response.status).type("application/json").send(text);
+    } catch (error: any) {
+      const detail = error?.name === "AbortError"
+        ? "Whisper service timed out"
+        : "Whisper service is unavailable. Start services/whisper_service or configure WHISPER_SERVICE_URL.";
+      res.status(503).json({ error: detail, fallbackAvailable: true });
+    } finally {
+      clearTimeout(timeout);
+    }
+  });
+
   // AI Video Audio Speech-to-Text Transcription Route using Gemini
   app.post("/api/transcribe", async (req, res) => {
     try {
