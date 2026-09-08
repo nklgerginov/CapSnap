@@ -87,9 +87,9 @@ export async function transcribeVideoAudioWithAI(
   onStatusChange?: (status: string) => void,
   language?: string
 ): Promise<SubtitleBlock[]> {
+  const wavBase64 = audioBufferToWavBase64(audioBuffer);
   try {
     if (onStatusChange) onStatusChange('Extracting audio track from video...');
-    const wavBase64 = audioBufferToWavBase64(audioBuffer);
 
     if (onStatusChange) onStatusChange('Transcribing speech & analyzing sentiment with Gemini AI...');
     const response = await fetch('/api/transcribe', {
@@ -163,6 +163,40 @@ export async function transcribeVideoAudioWithAI(
       onStatusChange(msg);
     }
     
+    const runtimeEnv = (import.meta as ImportMeta & {
+      env?: Record<string, string | undefined>;
+    }).env;
+    const remoteWhisperUrl = runtimeEnv?.VITE_WHISPER_SERVICE_URL;
+    if (remoteWhisperUrl) {
+      try {
+        if (onStatusChange) onStatusChange('Transcribing with dedicated Whisper service...');
+        const whisperResponse = await fetch(`${remoteWhisperUrl.replace(/\/$/, '')}/api/transcribe/whisper`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            audioBase64: wavBase64,
+            mimeType: 'audio/wav',
+            wordsPerBlock,
+            language: language || 'auto',
+            ensureWordAlignment: true,
+          }),
+        });
+        if (!whisperResponse.ok) {
+          throw new Error(`Whisper service responded with ${whisperResponse.status}`);
+        }
+        const whisperData = await whisperResponse.json();
+        if (Array.isArray(whisperData.blocks) && whisperData.blocks.length > 0) {
+          return correctSubtitleBlocks(applySmartAutoCaptionHighlights({
+            blocks: whisperData.blocks,
+            highlightColor: '#FFE600',
+            forceAtLeastOnePerBlock: true,
+          })).updatedBlocks;
+        }
+      } catch (remoteError) {
+        console.warn('Dedicated Whisper service unavailable; using local fallback:', remoteError);
+      }
+    }
+
     const offlineBlocks = await transcribeAudioOffline(
       audioBuffer,
       wordsPerBlock,

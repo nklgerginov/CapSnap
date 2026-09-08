@@ -200,6 +200,8 @@ beat-aware lyric timing, and reusable theme validation remain roadmap work.
 Required environment variable:
 
 - `GEMINI_API_KEY`: server-side Gemini API access.
+- `VITE_WHISPER_SERVICE_URL`: optional URL for the dedicated FastAPI Whisper
+  service. It is used only after Gemini fails and before local transcription.
 
 Development commands:
 
