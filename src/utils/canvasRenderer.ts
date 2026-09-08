@@ -8,6 +8,7 @@ import {
   AudioSettings,
   ExportFormat,
   ExportResolution,
+  SemanticCue,
 } from '../types';
 import {
   renderCanvasFrameToContext,
@@ -37,6 +38,7 @@ export interface RenderFrameOptions {
   watermark?: WatermarkSettings;
   progressBar?: ProgressBarSettings;
   resolution?: ExportResolution;
+  semanticCues?: SemanticCue[];
 }
 
 /**
@@ -56,6 +58,7 @@ export function renderCanvasFrame({
   watermark,
   progressBar,
   resolution,
+  semanticCues,
 }: RenderFrameOptions): void {
   const ctx = canvas.getContext('2d', {
     alpha: false,
@@ -92,6 +95,7 @@ export function renderCanvasFrame({
     watermark,
     progressBar,
     resolution,
+    semanticCues,
   });
 }
 

@@ -20,6 +20,7 @@ import { Header } from './components/Header';
 import { VideoPlayerCanvas } from './components/VideoPlayerCanvas';
 import { StylePanel } from './components/StylePanel';
 import { TimelineEditor } from './components/TimelineEditor';
+import { SemanticCueInspector } from './components/SemanticCueInspector';
 import { SubtitleManager } from './components/SubtitleManager';
 import { VideoExportModal } from './components/VideoExportModal';
 import { ProjectManagerModal } from './components/ProjectManagerModal';
@@ -52,6 +53,8 @@ import { transcribeVideoAudioWithAI } from './utils/aiTranscriber';
 import { generateSubtitleBlocksFromTranscript } from './utils/srtParser';
 import { getEmojiForWord } from './utils/emojiMap';
 import { clearSubtitleHighlights, applySmartAutoCaptionHighlights } from './utils/smartHighlighter';
+import { enrichSubtitleSemantics } from './utils/semanticEnrichment';
+import { detectBeatMarkers } from './utils/beatDetector';
 import { clearLayoutCache } from './utils/renderCore';
 import { correctSubtitleBlocks } from './utils/textCorrection';
 import { loadGoogleFont, preloadPopularGoogleFonts } from './utils/googleFonts';
@@ -167,6 +170,14 @@ export default function App() {
   const [isGeneratingDemo, setIsGeneratingDemo] = useState(false);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcribeStatus, setTranscribeStatus] = useState<string | null>(null);
+  const [semanticCues, setSemanticCues] = useState<NonNullable<Project['semanticCues']>>([]);
+  const [beatMarkers, setBeatMarkers] = useState<NonNullable<Project['beatMarkers']>>([]);
+
+  const enrichBlocks = (subtitleBlocks: SubtitleBlock[]): SubtitleBlock[] => {
+    const enriched = enrichSubtitleSemantics(subtitleBlocks);
+    setSemanticCues(enriched.cues);
+    return enriched.blocks;
+  };
 
   const handleLoadDemo = async () => {
     try {
@@ -243,6 +254,8 @@ export default function App() {
     if (project.progressBar) setProgressBar(project.progressBar);
     if (project.audioSettings) setAudioSettings(project.audioSettings);
     if (project.blocks) resetBlocks(project.blocks);
+    setSemanticCues(project.semanticCues || []);
+    setBeatMarkers(project.beatMarkers || []);
 
     // Attempt to load associated video blob from IndexedDB
     try {
@@ -258,6 +271,7 @@ export default function App() {
         try {
           const decoded = await decodeAudioFromFile(file);
           setAudioBuffer(decoded);
+          if (!project.beatMarkers?.length) setBeatMarkers(detectBeatMarkers(decoded));
           const wf = await extractWaveformFromAudioBuffer(decoded, 800);
           setWaveform(wf);
         } catch {
@@ -294,6 +308,8 @@ export default function App() {
       progressBar,
       audioSettings,
       blocks,
+      semanticCues,
+      beatMarkers,
       videoName: videoFile?.name || currentProject.videoName,
       videoDuration: duration || currentProject.videoDuration,
     };
@@ -324,6 +340,8 @@ export default function App() {
         progressBar,
         audioSettings,
         blocks,
+        semanticCues,
+        beatMarkers,
         videoName: videoFile?.name || currentProject.videoName,
         videoDuration: duration || currentProject.videoDuration,
       };
@@ -346,6 +364,8 @@ export default function App() {
     selectedPresetId,
     videoFile,
     duration,
+    semanticCues,
+    beatMarkers,
   ]);
 
   // Global Keyboard Shortcuts (Undo: Ctrl+Z, Redo: Ctrl+Y / Shift+Z, Save: Ctrl+S)
@@ -398,6 +418,8 @@ export default function App() {
     setVideoUrl(null);
     setAudioBuffer(null);
     setWaveform([]);
+    setSemanticCues([]);
+    setBeatMarkers([]);
     setCurrentTime(0);
     setDuration(0);
     setIsPlaying(false);
@@ -477,6 +499,8 @@ export default function App() {
       try {
         decodedBuffer = await decodeAudioFromFile(file);
         setAudioBuffer(decodedBuffer);
+        const detectedBeats = detectBeatMarkers(decodedBuffer);
+        setBeatMarkers(detectedBeats);
         const wf = await extractWaveformFromAudioBuffer(decodedBuffer, 800);
         setWaveform(wf);
       } catch (audioErr) {
@@ -503,14 +527,14 @@ export default function App() {
         aiBlocks = generateSubtitleBlocksFromTranscript(defaultText, targetDuration, style.maxWordsPerLine || 3);
       }
 
-      const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: aiBlocks });
+      const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: aiBlocks }));
       resetBlocks(highlightedBlocks);
     } catch (err) {
       console.warn('Video subtitle generation fallback error:', err);
       const targetDuration = duration || 10;
       const defaultText = 'Welcome to AutoCap Studio! Create viral video shorts with animated kinetic subtitles.';
       const backupBlocks = generateSubtitleBlocksFromTranscript(defaultText, targetDuration, style.maxWordsPerLine || 3);
-      const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: backupBlocks });
+      const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: backupBlocks }));
       resetBlocks(highlightedBlocks);
     } finally {
       setIsTranscribing(false);
@@ -532,6 +556,7 @@ export default function App() {
         try {
           targetBuffer = await decodeAudioFromFile(videoFile);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (e) {
@@ -544,6 +569,7 @@ export default function App() {
           const tempAudioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
           targetBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (e) {
@@ -572,7 +598,7 @@ export default function App() {
         aiBlocks = generateSubtitleBlocksFromTranscript(defaultText, targetDuration, style.maxWordsPerLine || 3);
       }
 
-      const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: aiBlocks });
+      const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: aiBlocks }));
       resetBlocks(highlightedBlocks);
       setProjectToastMsg(`Generated ${highlightedBlocks.length} AI subtitle blocks!`);
       setTimeout(() => setProjectToastMsg(null), 3500);
@@ -580,7 +606,7 @@ export default function App() {
       console.error('Manual AI Transcription error:', err);
       if (audioBuffer) {
         const offlineBlocks = await transcribeAudioOffline(audioBuffer, style.maxWordsPerLine || 3);
-        const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: offlineBlocks });
+        const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: offlineBlocks }));
         resetBlocks(highlightedBlocks);
         setProjectToastMsg(`Created ${highlightedBlocks.length} offline speech blocks.`);
         setTimeout(() => setProjectToastMsg(null), 3500);
@@ -602,6 +628,7 @@ export default function App() {
         try {
           targetBuffer = await decodeAudioFromFile(videoFile);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (e) {
@@ -614,6 +641,7 @@ export default function App() {
           const tempAudioCtx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
           targetBuffer = await tempAudioCtx.decodeAudioData(arrayBuffer);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (e) {
@@ -627,6 +655,7 @@ export default function App() {
         try {
           targetBuffer = createSyntheticAudioBuffer(fallbackDuration, 16000);
           setAudioBuffer(targetBuffer);
+          setBeatMarkers(detectBeatMarkers(targetBuffer));
           const wf = await extractWaveformFromAudioBuffer(targetBuffer, 800);
           setWaveform(wf);
         } catch (synthErr) {
@@ -657,7 +686,7 @@ export default function App() {
       }
 
       if (offlineBlocks && offlineBlocks.length > 0) {
-        const highlightedBlocks = applySmartAutoCaptionHighlights({ blocks: offlineBlocks });
+        const highlightedBlocks = enrichBlocks(applySmartAutoCaptionHighlights({ blocks: offlineBlocks }));
         console.log(`[Whisper.cpp] Applying ${highlightedBlocks.length} highlighted blocks to App state and timeline`);
         
         // Explicitly update history and current blocks state
@@ -1073,6 +1102,7 @@ export default function App() {
             audioSettings={audioSettings}
             onTransformChange={updated => setTransform(prev => ({ ...prev, ...updated }))}
             onChangeWatermark={updated => setWatermark(prev => ({ ...prev, ...updated }))}
+            semanticCues={semanticCues}
           />
         </div>
 
@@ -1134,6 +1164,13 @@ export default function App() {
             onSeek={handleSeek}
             onForceSync={handleForceSyncCanvas}
           />
+          <SemanticCueInspector
+            cues={semanticCues}
+            beatMarkers={beatMarkers}
+            onChangeCue={cue => setSemanticCues(prev => prev.map(item => item.id === cue.id ? cue : item))}
+            onDeleteCue={cueId => setSemanticCues(prev => prev.filter(cue => cue.id !== cueId))}
+            onSeek={handleSeek}
+          />
         </div>
 
         {/* Bottom Full Row: Waveform & Subtitle Timeline Scrubber */}
@@ -1175,6 +1212,7 @@ export default function App() {
             currentTime={currentTime}
             duration={duration}
             waveform={waveform}
+            beatMarkers={beatMarkers}
             audioBuffer={audioBuffer}
             onSeek={handleSeek}
             transform={transform}
@@ -1378,4 +1416,3 @@ function formatDurationSec(seconds: number): string {
   const secs = Math.floor(seconds % 60);
   return `${mins}:${String(secs).padStart(2, '0')}`;
 }
-

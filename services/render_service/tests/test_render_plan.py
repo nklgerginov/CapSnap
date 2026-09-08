@@ -29,6 +29,7 @@ def test_ffmpeg_command_uses_ass_filter_and_safe_arguments():
 
     assert command[0] == "ffmpeg"
     assert command[command.index("-vf") + 1] == "ass=filename='captions.ass'"
+    assert command[command.index("-progress") + 1] == "pipe:1"
     assert command[-1] == "output clip.mp4"
 
 

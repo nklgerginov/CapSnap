@@ -9,16 +9,26 @@ import { correctSubtitleBlocks } from './textCorrection';
  */
 export function audioBufferToWavBase64(buffer: AudioBuffer, targetSampleRate: number = 16000): string {
   const numChannels = 1; // mono for compact payload
-  const channelData = buffer.getChannelData(0);
-  
-  // Downsample if necessary
+  const sourceLength = buffer.length;
   const ratio = buffer.sampleRate / targetSampleRate;
-  const newLength = Math.floor(channelData.length / ratio);
+  const newLength = Math.max(1, Math.round(sourceLength / ratio));
   const downsampled = new Float32Array(newLength);
-  
+
+  // Mix every source channel before resampling so stereo creators do not lose
+  // dialogue panned to the right channel.
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, index) => buffer.getChannelData(index));
   for (let i = 0; i < newLength; i++) {
-    const originalIndex = Math.floor(i * ratio);
-    downsampled[i] = channelData[originalIndex] || 0;
+    const sourcePosition = i * ratio;
+    const low = Math.floor(sourcePosition);
+    const high = Math.min(sourceLength - 1, low + 1);
+    const weight = sourcePosition - low;
+    let mixed = 0;
+    for (const channel of channels) {
+      const lowValue = channel[low] || 0;
+      const highValue = channel[high] || 0;
+      mixed += (lowValue + (highValue - lowValue) * weight) / channels.length;
+    }
+    downsampled[i] = mixed;
   }
 
   // Create WAV header + PCM 16-bit samples
@@ -60,12 +70,12 @@ export function audioBufferToWavBase64(buffer: AudioBuffer, targetSampleRate: nu
     offset += 2;
   }
 
-  // Convert Uint8Array to base64
+  // Convert in chunks to avoid quadratic string concatenation for long videos.
   const bytes = new Uint8Array(wavBuffer);
   let binary = '';
-  const len = bytes.byteLength;
-  for (let i = 0; i < len; i++) {
-    binary += String.fromCharCode(bytes[i]);
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + chunkSize, bytes.length)));
   }
   return btoa(binary);
 }
@@ -85,7 +95,8 @@ export async function transcribeVideoAudioWithAI(
   audioBuffer: AudioBuffer,
   wordsPerBlock: number = 3,
   onStatusChange?: (status: string) => void,
-  language?: string
+  language?: string,
+  whisperModelId: string = 'whisper-small'
 ): Promise<SubtitleBlock[]> {
   const wavBase64 = audioBufferToWavBase64(audioBuffer);
   try {
@@ -172,12 +183,18 @@ export async function transcribeVideoAudioWithAI(
         if (onStatusChange) onStatusChange('Transcribing with dedicated Whisper service...');
         const whisperResponse = await fetch(`${remoteWhisperUrl.replace(/\/$/, '')}/api/transcribe/whisper`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: {
+            'Content-Type': 'application/json',
+            ...(runtimeEnv?.VITE_WHISPER_SERVICE_API_KEY
+              ? { 'X-API-Key': runtimeEnv.VITE_WHISPER_SERVICE_API_KEY }
+              : {}),
+          },
           body: JSON.stringify({
             audioBase64: wavBase64,
             mimeType: 'audio/wav',
             wordsPerBlock,
             language: language || 'auto',
+            model: whisperModelId,
             ensureWordAlignment: true,
           }),
         });

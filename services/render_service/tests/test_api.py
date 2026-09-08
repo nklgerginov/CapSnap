@@ -48,11 +48,13 @@ def test_render_job_is_accepted_without_running_ffmpeg(monkeypatch, tmp_path):
 
     class FakeProcess:
         returncode = 0
+        stdout = None
+        stderr = None
 
         async def wait(self):
             return 0
 
-    async def fake_exec(*_args):
+    async def fake_exec(*_args, **_kwargs):
         return FakeProcess()
 
     monkeypatch.setattr("services.render_service.main.asyncio.create_subprocess_exec", fake_exec)

@@ -46,18 +46,47 @@ async def _run_job(job_id: str, request: RenderRequest, ass: str, command: list[
         ass_path = Path(request.ass_path)
         ass_path.parent.mkdir(parents=True, exist_ok=True)
         ass_path.write_text(ass, encoding="utf-8")
-        process = await asyncio.create_subprocess_exec(*command)
+        process = await asyncio.create_subprocess_exec(
+            *command,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
         job["process"] = process
         job["status"] = "running"
         job["progress"] = 10
+
+        async def consume_progress() -> None:
+            if not process.stdout:
+                return
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    return
+                key, separator, value = line.decode("utf-8", errors="replace").strip().partition("=")
+                if key == "out_time_ms" and separator and request.duration_seconds:
+                    try:
+                        elapsed = max(0.0, float(value) / 1_000_000)
+                    except ValueError:
+                        continue
+                    job["progress"] = min(99, max(10, round(elapsed / request.duration_seconds * 100)))
+
+        async def drain_stderr() -> None:
+            if process.stderr:
+                while await process.stderr.readline():
+                    pass
+
+        progress_task = asyncio.create_task(consume_progress())
+        stderr_task = asyncio.create_task(drain_stderr())
         return_code = await process.wait()
+        await progress_task
+        await stderr_task
         if job["status"] == "cancelled":
             return
         if return_code:
             job.update(status="failed", progress=0, error=f"FFmpeg exited with {return_code}")
         else:
             job.update(status="completed", progress=100)
-    except Exception as error:
+    except (OSError, ValueError) as error:
         job.update(status="failed", progress=0, error=str(error))
 
 

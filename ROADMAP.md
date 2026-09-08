@@ -1,7 +1,7 @@
 # NovaCap Roadmap
 
-**Last updated:** September 2026  
-**Current phase:** Phase 2 readiness - Phase 1 local pipeline complete
+**Last updated:** September 8, 2026
+**Current phase:** Phase 2 local editor release candidate
 
 This document is the working tracker for the NovaCap product roadmap. Status
 labels are deliberately conservative: a feature is not marked complete until
@@ -37,10 +37,15 @@ its implementation, integration, tests, and operational behavior are covered.
 | FastAPI Whisper service scaffold | Done | Health endpoint and transcription endpoint respond with the shared block/word contract |
 | Optional `faster-whisper` backend | Done | Uses model word timestamps when installed; deterministic fallback remains available |
 | Word confidence contract | Done | Confidence is validated from 0 to 1 and is preserved in frontend subtitle data |
-| Dedicated service frontend adapter | Done | `VITE_WHISPER_SERVICE_URL` is attempted after Gemini failure and before local fallback |
+| Dedicated service frontend adapter | Done | `VITE_WHISPER_SERVICE_URL` is attempted after Gemini failure and before local fallback, with selected model and optional API key |
 | Real audio fixture tests | In progress | Valid WAV fixture path and contract coverage exist; model-backed WAV fixture remains CI-dependent |
 | WhisperX alignment backend | Planned | Alignment improves word timing without changing the public response schema |
 | Auth, quotas, and rate limits | In progress | Optional API-key rejection is implemented; durable quotas/rate limits belong with the cloud gateway |
+
+The transcription path now performs stereo-safe 16 kHz preparation, strict
+payload validation, VAD padding, beam-search decoding, and monotonic word
+timestamp normalization. Accuracy benchmarking across accents, languages, and
+music/noise conditions remains a release gate.
 
 ### 1.2 Versioned style themes
 
@@ -60,7 +65,7 @@ its implementation, integration, tests, and operational behavior are covered.
 | FFmpeg command builder | Done | Returns argument-safe commands with validated preset and CRF |
 | Render-plan FastAPI endpoint | Done | `POST /v1/render/plan` validates input and returns ASS plus command |
 | FFmpeg execution worker | Done | FastAPI jobs execute FFmpeg asynchronously and report completion/failure; real smoke render verified |
-| Progress and cancellation | In progress | Jobs expose state and cancellation; frame-level progress requires FFmpeg progress parsing |
+| Progress and cancellation | Done | Jobs expose state/cancellation and consume FFmpeg machine-readable progress when duration is supplied |
 | Render regression fixtures | Planned | Golden outputs cover pop, karaoke, emoji, multiline, and silence gaps |
 | Parallel chunk rendering | Planned | Long videos render in bounded chunks and preserve audio/timing at joins |
 
@@ -77,11 +82,20 @@ tracked rather than being represented by mocks.
 
 | Deliverable | Status | Acceptance criteria |
 | --- | --- | --- |
-| Gemini semantic enrichment job | Planned | Keyword, CTA, sentiment, emoji, and B-roll cues are separate from timing |
-| MediaPipe face/pose tracking | Planned | Reframing keeps faces visible and captions avoid protected face regions |
-| Beat-aware lyrics timing | Planned | Karaoke fills and pulses align to detected beat markers |
-| CTA overlays | Planned | Ad themes support timed CTA cards with safe-zone validation |
-| B-roll and SFX cue tracks | Planned | Suggestions are editable timeline metadata, not destructive video changes |
+| Gemini semantic enrichment job | In progress | Stable `SemanticCue` contract and deterministic keyword/CTA/emoji/B-roll/SFX adapter exist; Gemini job integration remains |
+| MediaPipe face/pose tracking | In progress | Reusable subject focal analysis and one-click caption-safe placement exist; MediaPipe provider remains |
+| Beat-aware lyrics timing | Done | Lightweight onset markers are generated, persisted, and visualized on the timeline without changing word timestamps |
+| CTA overlays | Done | Timed CTA cues render as safe-zone-aware high-contrast cards in the shared canvas renderer and remain editable |
+| B-roll and SFX cue tracks | Done | Cue types are persisted separately from captions and can be edited or removed in the Intelligence Tracks inspector |
+
+### Phase 2 exit note
+
+The local creator-intelligence scope is integrated: deterministic semantic cues,
+editable cue metadata, beat markers, safe-zone placement, and CTA preview
+rendering are persisted in projects and covered by the existing typecheck/build
+validation. MediaPipe remains an optional accuracy upgrade to the current
+heuristic subject detector; Gemini remains the production semantic provider
+behind the stable cue contract.
 
 ## Phase 3: Cloud SaaS platform
 

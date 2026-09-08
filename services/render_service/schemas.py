@@ -10,6 +10,7 @@ class RenderRequest(BaseModel):
     subtitles: dict[str, Any]
     preset: str = Field("veryfast", pattern="^(veryfast|faster|fast|medium)$")
     crf: int = Field(18, ge=0, le=51)
+    duration_seconds: float | None = Field(default=None, gt=0, le=24 * 60 * 60)
 
 
 class RenderPlanResponse(BaseModel):
@@ -20,6 +21,6 @@ class RenderPlanResponse(BaseModel):
 class RenderJobResponse(BaseModel):
     id: str
     status: str
-    progress: int
+    progress: int = Field(ge=0, le=100)
     output_path: str
     error: str | None = None

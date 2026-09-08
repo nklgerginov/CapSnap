@@ -8,6 +8,7 @@ import {
   ProgressBarSettings,
   AspectRatio,
   ExportResolution,
+  SemanticCue,
 } from '../types';
 import { getInterpolatedTransform } from './cropKeyframes';
 import { loadGoogleFont } from './googleFonts';
@@ -32,6 +33,7 @@ export interface RenderToContextOptions {
   watermark?: WatermarkSettings;
   progressBar?: ProgressBarSettings;
   resolution?: ExportResolution;
+  semanticCues?: SemanticCue[];
 }
 
 // ---------------------------------------------------------------------------
@@ -8339,6 +8341,7 @@ export function renderCanvasFrameToContext({
   transform,
   watermark,
   progressBar,
+  semanticCues,
 }: RenderToContextOptions): void {
   // Avoid rendering if video source is not yet ready to avoid flashing black/empty frames
   if (typeof HTMLVideoElement !== 'undefined' && source instanceof HTMLVideoElement) {
@@ -8519,6 +8522,32 @@ export function renderCanvasFrameToContext({
   // 3. Render Progress Bar / Retention Timer if enabled
   if (progressBar) {
     renderProgressBarOverlay(ctx, progressBar, currentTime, duration || 0, canvasWidth, canvasHeight);
+  }
+
+  const activeCta = semanticCues?.find(
+    cue => cue.type === 'cta' && currentTime >= cue.start && currentTime <= cue.end
+  );
+  if (activeCta) {
+    const ctaText = (activeCta.payload || activeCta.label.replace(/^CTA:\s*/i, '')).toUpperCase();
+    const boxWidth = Math.min(canvasWidth * 0.82, Math.max(280, ctaText.length * canvasWidth * 0.025));
+    const boxHeight = Math.max(52, canvasHeight * 0.065);
+    const x = (canvasWidth - boxWidth) / 2;
+    const y = style.positionYPercent < 55 ? canvasHeight * 0.78 : canvasHeight * 0.14;
+    ctx.save();
+    ctx.fillStyle = '#f59e0b';
+    ctx.shadowColor = 'rgba(245, 158, 11, 0.45)';
+    ctx.shadowBlur = Math.max(8, canvasWidth * 0.012);
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, boxWidth, boxHeight, boxHeight / 2);
+    else ctx.rect(x, y, boxWidth, boxHeight);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = '#0f172a';
+    ctx.font = `800 ${Math.max(18, canvasHeight * 0.027)}px ${style.fontFamily}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(ctaText, canvasWidth / 2, y + boxHeight / 2);
+    ctx.restore();
   }
 
   // 4. Find Active Subtitle Block at currentTime

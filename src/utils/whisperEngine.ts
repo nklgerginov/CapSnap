@@ -531,8 +531,8 @@ function bufferToWavBase64(buffer: AudioBuffer, targetSampleRate: number = 16000
  * Transcribes an AudioBuffer by genuinely analyzing the speech audio track.
  * Uses a multi-tiered speech recognition architecture:
  * 1. 16kHz audio normalization & 80-bin Mel-spectrogram Voice Activity Detection (VAD)
- * 2. High-fidelity Neural Audio Processing with exact spoken words & sub-second timestamps
- * 3. Browser-native Web Speech API speech-to-text fallback
+ * 2. Remote Whisper/Gemini adapter with exact spoken words & sub-second timestamps
+ * 3. Browser-native/local acoustic fallback when no model service is available
  * 4. Acoustic energy-aligned speech interval segmenting with sentence capitalization
  */
 export async function transcribeWithWhisperCpp(
@@ -578,17 +578,30 @@ export async function transcribeWithWhisperCpp(
   // Stage 4: Genuine Speech Recognition on the audio track
   onProgress?.(60, `Whisper.cpp (${modelMeta.name}): Transcribing ${selectedLangMeta.flag} ${selectedLangMeta.name} speech from audio...`);
 
-  // Attempt 1: Direct High-Accuracy Neural Audio Transcription from the decoded audio track
+  // Attempt 1: Dedicated Whisper service. The browser fallback must not route
+  // a user-selected Whisper model through the Gemini endpoint.
   try {
     const wavBase64 = bufferToWavBase64(targetBuffer, 16000);
-    const res = await fetch('/api/transcribe', {
+    const runtimeEnv = (import.meta as ImportMeta & {
+      env?: Record<string, string | undefined>;
+    }).env;
+    const whisperUrl = runtimeEnv?.VITE_WHISPER_SERVICE_URL;
+    if (!whisperUrl) throw new Error('Dedicated Whisper service is not configured');
+    const res = await fetch(`${whisperUrl.replace(/\/$/, '')}/api/transcribe/whisper`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(runtimeEnv?.VITE_WHISPER_SERVICE_API_KEY
+          ? { 'X-API-Key': runtimeEnv.VITE_WHISPER_SERVICE_API_KEY }
+          : {}),
+      },
       body: JSON.stringify({
         audioBase64: wavBase64,
         mimeType: 'audio/wav',
         wordsPerBlock,
         language: effectiveLang,
+        model: modelId,
+        ensureWordAlignment: true,
       }),
     });
 
@@ -605,7 +618,8 @@ export async function transcribeWithWhisperCpp(
     console.warn('[Whisper.cpp] Online transcription fallback to local audio VAD analysis:', apiErr);
   }
 
-  // Attempt 2: Local Acoustic VAD-Driven Speech Interval Alignment
+  // Attempt 2: Local acoustic VAD-driven alignment. This fallback preserves
+  // timing quality but cannot recognize unseen words without a model.
   onProgress?.(75, `Whisper.cpp (${modelMeta.name}): Processing ${speechSegments.length} detected voice segments...`);
   await new Promise(resolve => setTimeout(resolve, 40));
 

@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import base64
+import binascii
 import os
 from pydantic import ValidationError
 
@@ -28,7 +29,7 @@ def authorize(api_key: str | None) -> None:
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "backend": transcriber.backend}
 
 @app.post("/api/transcribe/whisper")
 async def transcribe(req: TranscribeRequest, x_api_key: str | None = Header(default=None)):
@@ -38,10 +39,11 @@ async def transcribe(req: TranscribeRequest, x_api_key: str | None = Header(defa
         raise HTTPException(status_code=400, detail="audioBase64 is required")
 
     try:
-        # Optionally validate base64
-        _ = base64.b64decode(req.audioBase64, validate=False)
-    except Exception:
+        decoded = base64.b64decode(req.audioBase64, validate=True)
+    except (ValueError, binascii.Error):
         raise HTTPException(status_code=400, detail="audioBase64 is not valid base64")
+    if len(decoded) > 250 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="audio payload exceeds 250 MB limit")
 
     try:
         blocks = await transcriber.transcribe_base64(
@@ -53,8 +55,10 @@ async def transcribe(req: TranscribeRequest, x_api_key: str | None = Header(defa
             ensureWordAlignment=bool(req.ensureWordAlignment),
         )
 
-        return {"blocks": blocks}
+        return {"blocks": blocks, "backend": transcriber.backend, "model": req.model}
     except ValidationError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         # Don't leak internal errors; log in real service

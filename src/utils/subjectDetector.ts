@@ -11,6 +11,26 @@ export interface SubjectFocalResult {
   description: string;
 }
 
+export interface CaptionSafeZone {
+  positionXPercent: number;
+  positionYPercent: number;
+  reason: string;
+}
+
+export function getCaptionSafeZone(focal: SubjectFocalResult): CaptionSafeZone {
+  const subjectY = focal.focalYPercent + 50;
+  const subjectX = focal.focalXPercent + 50;
+  const positionYPercent = subjectY > 58 ? 22 : subjectY < 38 ? 76 : 72;
+  const positionXPercent = subjectX < 35 ? 68 : subjectX > 65 ? 32 : 50;
+  return {
+    positionXPercent,
+    positionYPercent,
+    reason: focal.detectedType === 'face_speaker'
+      ? 'Caption moved away from detected speaker region'
+      : 'Caption placed outside the highest-interest region',
+  };
+}
+
 export function detectSubjectFocalPoint(
   videoElement: HTMLVideoElement | null
 ): SubjectFocalResult {

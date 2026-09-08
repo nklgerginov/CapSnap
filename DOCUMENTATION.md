@@ -10,9 +10,9 @@ NovaCap is currently a browser-first caption editor, not yet a distributed
 video SaaS platform. The existing product has a useful editing foundation:
 Gemini transcription, an offline transcription path, word-level subtitle data,
 rich canvas effects, timeline manipulation, local project persistence, and
-browser export. The main architectural gap is that heavy processing is still
-client-side and the transcription API uses Express/Gemini rather than the
-planned Python/FastAPI and Whisper v3/AssemblyAI pipeline.
+browser export. A local Python service layer now adds optional Whisper
+transcription and asynchronous FFmpeg rendering, but durable queues, cloud
+storage, and production deployment are not yet present.
 
 The safest evolution is incremental: preserve the responsive local editor,
 define a stable subtitle/style contract, then introduce worker-backed
@@ -25,7 +25,7 @@ transcription and rendering behind the existing adapters.
 | Editor UI | React 19, TypeScript, Vite, Tailwind, Motion/Lucide UI | Implemented |
 | Cloud transcription | Express `POST /api/transcribe` calling Gemini multimodal models | Implemented |
 | Offline transcription | Browser audio resampling, acoustic/VAD analysis, Whisper.cpp-style adapter and fallback | Implemented, validate accuracy before production claims |
-| Word timing | `SubtitleWord` with `start`, `end`, emphasis, sentiment, color, and emoji | Implemented |
+| Word timing | `SubtitleWord` with `start`, `end`, confidence, emphasis, sentiment, color, and emoji | Implemented |
 | Style system | `SubtitleStyle`, `PresetTheme`, platform presets, Google Fonts | Implemented |
 | Vibe effects | Canvas renderer with pop, karaoke, glow, shake, glitch, and extensive effect presets | Implemented |
 | Semantic enrichment | Gemini sentiment/mood fields plus local keyword highlighting and emoji map | Implemented |
@@ -50,8 +50,11 @@ Browser
   ├─ IndexedDB project/video storage
   └─ WebCodecs / worker export
           │
-          └── Express server
-                └── Gemini multimodal transcription (/api/transcribe)
+          ├── Express server
+          │     └── Gemini multimodal transcription (/api/transcribe)
+          └── FastAPI services
+                ├── Whisper word timing (/api/transcribe/whisper)
+                └── FFmpeg render plans/jobs (/v1/render/*)
 ```
 
 ### Important boundaries
@@ -59,13 +62,37 @@ Browser
 - `src/types.ts` is the shared domain contract for projects, subtitle words,
   styles, transforms, audio, and export settings.
 - `src/utils/aiTranscriber.ts` owns the Gemini client adapter from the UI.
+- Audio sent to remote providers is mixed to mono, linearly resampled to
+  16 kHz, and encoded efficiently as WAV; stereo dialogue is preserved instead
+  of silently dropping the right channel.
 - `src/utils/whisperEngine.ts` owns local audio preparation and offline
   transcription behavior.
 - `src/utils/renderCore.ts` is the rendering engine; UI components should not
   contain rendering algorithms.
+- `src/utils/semanticEnrichment.ts` produces editable keyword, CTA, emoji,
+  B-roll, and SFX cues without changing subtitle timing.
+- `src/utils/subjectDetector.ts` provides heuristic focal analysis and
+  caption-safe placement; MediaPipe face/pose tracking is the next accuracy
+  upgrade.
+- `src/utils/beatDetector.ts` derives conservative onset markers for lyric
+  timing without changing word timestamps.
+- `src/components/SemanticCueInspector.tsx` exposes editable/removable
+  keyword, CTA, emoji, B-roll, and SFX metadata alongside beat-marker counts.
+- The shared canvas renderer draws active CTA cues as high-contrast cards in a
+  safe upper/lower region chosen to avoid the configured subtitle band.
 - `src/utils/projectStorage.ts` is the persistence boundary.
 - `server.ts` currently owns API validation, Gemini model fallback, JSON
   normalization, and Vite/static serving.
+- Render jobs use FFmpeg's machine-readable progress channel when
+  `duration_seconds` is supplied and drain both subprocess streams to avoid
+  deadlocks on verbose encoder output.
+- The Whisper service uses word timestamps, VAD padding, beam search, and
+  monotonic timestamp normalization. Invalid base64 and oversized payloads are
+  rejected before model work begins.
+- Whisper models are loaded lazily per requested model. With `faster-whisper`
+  installed, a missing selected model is downloaded on first use and cached;
+  the dummy backend is only a development fallback when the dependency itself
+  is unavailable.
 
 ## Core data contracts
 
@@ -77,6 +104,7 @@ interface SubtitleWord {
   text: string;
   start: number;
   end: number;
+  confidence?: number;
   colorOverride?: string;
   emoji?: string;
   isEmphasized?: boolean;
@@ -111,8 +139,10 @@ incompatible style format.
    path prepares 16 kHz mono audio for offline processing.
 4. Returned blocks are normalized with stable IDs and optional semantic fields.
 5. Audio-energy alignment and smart highlighting refine the subtitle blocks.
-6. Canvas preview renders the active words and effects at playback time.
-7. WebCodecs/workers export the result when browser support is available;
+6. Canvas preview renders the active words, effects, and timed CTA cues.
+7. Semantic cues and beat markers are persisted with the project and surfaced
+   in the Intelligence Tracks inspector and waveform timeline.
+8. WebCodecs/workers export the result when browser support is available;
    SRT/VTT and audio exports remain separate paths.
 
 ## Phase 1 roadmap
