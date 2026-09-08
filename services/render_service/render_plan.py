@@ -138,6 +138,9 @@ def build_ffmpeg_command(
         "aac",
         "-movflags",
         "+faststart",
+        "-progress",
+        "pipe:1",
+        "-nostats",
         output_path,
     ]
 

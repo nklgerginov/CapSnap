@@ -60,7 +60,7 @@ its implementation, integration, tests, and operational behavior are covered.
 | FFmpeg command builder | Done | Returns argument-safe commands with validated preset and CRF |
 | Render-plan FastAPI endpoint | Done | `POST /v1/render/plan` validates input and returns ASS plus command |
 | FFmpeg execution worker | Done | FastAPI jobs execute FFmpeg asynchronously and report completion/failure; real smoke render verified |
-| Progress and cancellation | In progress | Jobs expose state and cancellation; frame-level progress requires FFmpeg progress parsing |
+| Progress and cancellation | Done | Jobs expose state/cancellation and consume FFmpeg machine-readable progress when duration is supplied |
 | Render regression fixtures | Planned | Golden outputs cover pop, karaoke, emoji, multiline, and silence gaps |
 | Parallel chunk rendering | Planned | Long videos render in bounded chunks and preserve audio/timing at joins |
 

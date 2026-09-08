@@ -80,6 +80,9 @@ Browser
 - `src/utils/projectStorage.ts` is the persistence boundary.
 - `server.ts` currently owns API validation, Gemini model fallback, JSON
   normalization, and Vite/static serving.
+- Render jobs use FFmpeg's machine-readable progress channel when
+  `duration_seconds` is supplied and drain both subprocess streams to avoid
+  deadlocks on verbose encoder output.
 
 ## Core data contracts
 
