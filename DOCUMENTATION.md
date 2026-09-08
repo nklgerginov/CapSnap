@@ -66,6 +66,8 @@ Browser
   transcription behavior.
 - `src/utils/renderCore.ts` is the rendering engine; UI components should not
   contain rendering algorithms.
+- `src/utils/semanticEnrichment.ts` produces editable keyword, CTA, emoji,
+  B-roll, and SFX cues without changing subtitle timing.
 - `src/utils/projectStorage.ts` is the persistence boundary.
 - `server.ts` currently owns API validation, Gemini model fallback, JSON
   normalization, and Vite/static serving.

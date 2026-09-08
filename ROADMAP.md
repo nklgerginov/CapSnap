@@ -77,7 +77,7 @@ tracked rather than being represented by mocks.
 
 | Deliverable | Status | Acceptance criteria |
 | --- | --- | --- |
-| Gemini semantic enrichment job | Planned | Keyword, CTA, sentiment, emoji, and B-roll cues are separate from timing |
+| Gemini semantic enrichment job | In progress | Stable `SemanticCue` contract and deterministic keyword/CTA/emoji/B-roll/SFX adapter exist; Gemini job integration remains |
 | MediaPipe face/pose tracking | Planned | Reframing keeps faces visible and captions avoid protected face regions |
 | Beat-aware lyrics timing | Planned | Karaoke fills and pulses align to detected beat markers |
 | CTA overlays | Planned | Ad themes support timed CTA cards with safe-zone validation |

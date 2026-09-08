@@ -154,6 +154,18 @@ export interface SubtitleBlock {
   speakerColor?: string; // Optional custom accent color for this speaker
 }
 
+export type SemanticCueType = 'keyword' | 'cta' | 'emoji' | 'b_roll' | 'sfx';
+
+export interface SemanticCue {
+  id: string;
+  type: SemanticCueType;
+  start: number;
+  end: number;
+  label: string;
+  confidence: number;
+  payload?: string;
+}
+
 export interface SubtitleStyle {
   fontFamily: string;
   fontSize: number; // in px on canvas relative to 1080p height
@@ -333,5 +345,6 @@ export interface Project {
   progressBar?: ProgressBarSettings;
   audioSettings: AudioSettings;
   blocks: SubtitleBlock[];
+  semanticCues?: SemanticCue[];
   thumbnail?: string;
 }
