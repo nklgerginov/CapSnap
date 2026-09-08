@@ -62,6 +62,9 @@ Browser
 - `src/types.ts` is the shared domain contract for projects, subtitle words,
   styles, transforms, audio, and export settings.
 - `src/utils/aiTranscriber.ts` owns the Gemini client adapter from the UI.
+- Audio sent to remote providers is mixed to mono, linearly resampled to
+  16 kHz, and encoded efficiently as WAV; stereo dialogue is preserved instead
+  of silently dropping the right channel.
 - `src/utils/whisperEngine.ts` owns local audio preparation and offline
   transcription behavior.
 - `src/utils/renderCore.ts` is the rendering engine; UI components should not
@@ -83,6 +86,9 @@ Browser
 - Render jobs use FFmpeg's machine-readable progress channel when
   `duration_seconds` is supplied and drain both subprocess streams to avoid
   deadlocks on verbose encoder output.
+- The Whisper service uses word timestamps, VAD padding, beam search, and
+  monotonic timestamp normalization. Invalid base64 and oversized payloads are
+  rejected before model work begins.
 
 ## Core data contracts
 

@@ -37,6 +37,7 @@ class Transcriber:
             return await asyncio.to_thread(
                 self._transcribe_with_faster_whisper,
                 audio_bytes,
+                mimeType,
                 language,
                 wordsPerBlock,
                 ensureWordAlignment,
@@ -47,13 +48,23 @@ class Transcriber:
     def _transcribe_with_faster_whisper(
         self,
         audio_bytes: bytes,
+        mime_type: Optional[str],
         language: Optional[str],
         words_per_block: int,
         ensure_word_alignment: bool,
     ):
         import tempfile
 
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=True) as audio_file:
+        suffix = {
+            "audio/wav": ".wav",
+            "audio/x-wav": ".wav",
+            "audio/mpeg": ".mp3",
+            "audio/mp3": ".mp3",
+            "audio/ogg": ".ogg",
+            "audio/webm": ".webm",
+            "audio/mp4": ".m4a",
+        }.get((mime_type or "audio/wav").split(";", 1)[0].lower(), ".wav")
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=True) as audio_file:
             audio_file.write(audio_bytes)
             audio_file.flush()
             segments, _ = self.model.transcribe(
@@ -61,20 +72,30 @@ class Transcriber:
                 language=None if not language or language == "auto" else language,
                 word_timestamps=ensure_word_alignment,
                 vad_filter=True,
+                vad_parameters={"min_silence_duration_ms": 350, "speech_pad_ms": 180},
+                beam_size=5,
+                best_of=5,
+                condition_on_previous_text=False,
             )
             words = []
+            previous_end = 0.0
             for segment in segments:
                 for word in (segment.words or []):
                     text = word.word.strip()
                     if not text or word.end <= word.start:
                         continue
+                    start = max(previous_end, round(float(word.start), 3))
+                    end = round(float(word.end), 3)
+                    if end <= start:
+                        continue
                     words.append(Word(
                         id=f"whisper-word-{uuid.uuid4().hex[:10]}",
                         text=text,
-                        start=round(float(word.start), 3),
-                        end=round(float(word.end), 3),
-                        confidence=round(max(0.0, min(1.0, float(word.probability))), 4),
+                        start=start,
+                        end=end,
+                        confidence=round(max(0.0, min(1.0, float(word.probability or 0.0))), 4),
                     ))
+                    previous_end = end
             return self._group_words(words, words_per_block)
 
     def _group_words(self, words: list[Word], words_per_block: int):

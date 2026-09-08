@@ -42,6 +42,11 @@ its implementation, integration, tests, and operational behavior are covered.
 | WhisperX alignment backend | Planned | Alignment improves word timing without changing the public response schema |
 | Auth, quotas, and rate limits | In progress | Optional API-key rejection is implemented; durable quotas/rate limits belong with the cloud gateway |
 
+The transcription path now performs stereo-safe 16 kHz preparation, strict
+payload validation, VAD padding, beam-search decoding, and monotonic word
+timestamp normalization. Accuracy benchmarking across accents, languages, and
+music/noise conditions remains a release gate.
+
 ### 1.2 Versioned style themes
 
 | Deliverable | Status | Acceptance criteria |

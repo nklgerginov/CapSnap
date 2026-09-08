@@ -39,3 +39,8 @@ def test_transcribe_requires_optional_api_key(monkeypatch):
     monkeypatch.setenv("NOVACAP_WHISPER_API_KEY", "secret")
     payload = {"audioBase64": base64.b64encode(b"dummy").decode()}
     assert client.post("/api/transcribe/whisper", json=payload).status_code == 401
+
+
+def test_transcribe_rejects_invalid_base64():
+    response = client.post("/api/transcribe/whisper", json={"audioBase64": "not base64!"})
+    assert response.status_code == 400
