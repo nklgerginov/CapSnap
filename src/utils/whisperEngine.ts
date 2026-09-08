@@ -1,5 +1,4 @@
 import { SubtitleBlock, SubtitleWord } from '../types';
-import { getEmojiForWord } from './emojiMap';
 import { correctSubtitleBlocks } from './textCorrection';
 
 /**
@@ -532,8 +531,7 @@ function bufferToWavBase64(buffer: AudioBuffer, targetSampleRate: number = 16000
  * Uses a multi-tiered speech recognition architecture:
  * 1. 16kHz audio normalization & 80-bin Mel-spectrogram Voice Activity Detection (VAD)
  * 2. Remote Whisper/Gemini adapter with exact spoken words & sub-second timestamps
- * 3. Browser-native/local acoustic fallback when no model service is available
- * 4. Acoustic energy-aligned speech interval segmenting with sentence capitalization
+ * 3. Explicit provider failure when no model service is available
  */
 export async function transcribeWithWhisperCpp(
   audioBuffer: AudioBuffer,
@@ -548,35 +546,18 @@ export async function transcribeWithWhisperCpp(
 
   let targetBuffer = audioBuffer;
   if (!targetBuffer || targetBuffer.duration <= 0) {
-    targetBuffer = createSyntheticAudioBuffer(10, 16000);
+    throw new Error('No audio track is available for Whisper transcription');
   }
 
   const totalDuration = targetBuffer.duration;
   const modelMeta = WHISPER_MODELS.find(m => m.id === modelId) || WHISPER_MODELS[1];
 
   // Stage 1: Resample audio to 16kHz mono (Whisper standard)
-  onProgress?.(12, `Whisper.cpp (${modelMeta.name}): Resampling audio track to 16kHz mono...`);
-  await new Promise(resolve => setTimeout(resolve, 30));
-  const audio16k = resampleTo16kHz(targetBuffer);
+  onProgress?.(12, `Whisper.cpp (${modelMeta.name}): Preparing 16kHz mono audio...`);
 
-  // Stage 2: Compute Mel-Spectrogram & VAD Voice Segmentation
-  onProgress?.(30, `Whisper.cpp (${modelMeta.name}): Analyzing acoustic speech energy & VAD...`);
-  await new Promise(resolve => setTimeout(resolve, 35));
-  const { speechSegments, acousticMetrics } = computeWhisperMelFeatures(audio16k);
-
-  // Stage 3: Language Detection Setup
-  let effectiveLang = language;
-  if (language === 'auto' || !language) {
-    onProgress?.(45, `Whisper.cpp (${modelMeta.name}): Detecting speech language & dialect...`);
-    await new Promise(resolve => setTimeout(resolve, 25));
-    const detection = detectLanguageFromAudio(audio16k);
-    effectiveLang = detection.detectedLang;
-  }
-
-  const selectedLangMeta = SUPPORTED_OFFLINE_LANGUAGES.find(l => l.code === effectiveLang) || SUPPORTED_OFFLINE_LANGUAGES[1];
-  
-  // Stage 4: Genuine Speech Recognition on the audio track
-  onProgress?.(60, `Whisper.cpp (${modelMeta.name}): Transcribing ${selectedLangMeta.flag} ${selectedLangMeta.name} speech from audio...`);
+  // The dedicated service owns VAD, language detection, and recognition. Do
+  // not duplicate expensive local analysis before sending the audio.
+  onProgress?.(45, `Whisper.cpp (${modelMeta.name}): Transcribing ${language === 'auto' ? 'detected' : language} speech...`);
 
   // Attempt 1: Dedicated Whisper service. The browser fallback must not route
   // a user-selected Whisper model through the Gemini endpoint.
@@ -585,13 +566,14 @@ export async function transcribeWithWhisperCpp(
     const runtimeEnv = (import.meta as ImportMeta & {
       env?: Record<string, string | undefined>;
     }).env;
-    const whisperUrl = runtimeEnv?.VITE_WHISPER_SERVICE_URL;
-    if (!whisperUrl) throw new Error('Dedicated Whisper service is not configured');
-    const res = await fetch(`${whisperUrl.replace(/\/$/, '')}/api/transcribe/whisper`, {
+    const whisperEndpoint = runtimeEnv?.VITE_WHISPER_SERVICE_URL
+      ? `${runtimeEnv.VITE_WHISPER_SERVICE_URL.replace(/\/$/, '')}/api/transcribe/whisper`
+      : '/api/transcribe/whisper';
+    const res = await fetch(whisperEndpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        ...(runtimeEnv?.VITE_WHISPER_SERVICE_API_KEY
+        ...(runtimeEnv?.VITE_WHISPER_SERVICE_URL && runtimeEnv?.VITE_WHISPER_SERVICE_API_KEY
           ? { 'X-API-Key': runtimeEnv.VITE_WHISPER_SERVICE_API_KEY }
           : {}),
       },
@@ -599,7 +581,7 @@ export async function transcribeWithWhisperCpp(
         audioBase64: wavBase64,
         mimeType: 'audio/wav',
         wordsPerBlock,
-        language: effectiveLang,
+        language,
         model: modelId,
         ensureWordAlignment: true,
       }),
@@ -618,90 +600,8 @@ export async function transcribeWithWhisperCpp(
     console.warn('[Whisper.cpp] Online transcription fallback to local audio VAD analysis:', apiErr);
   }
 
-  // Attempt 2: Local acoustic VAD-driven alignment. This fallback preserves
-  // timing quality but cannot recognize unseen words without a model.
-  onProgress?.(75, `Whisper.cpp (${modelMeta.name}): Processing ${speechSegments.length} detected voice segments...`);
-  await new Promise(resolve => setTimeout(resolve, 40));
-
-  // Determine speech segments from acoustic profile
-  let validSegments = [...speechSegments];
-  if (validSegments.length === 0) {
-    const phraseDuration = 2.4;
-    const pauseDuration = 0.35;
-    let cursor = 0.2;
-    while (cursor < totalDuration - 0.2) {
-      const end = Math.min(totalDuration - 0.1, cursor + phraseDuration);
-      if (end - cursor >= 0.5) {
-        validSegments.push({
-          start: Number(cursor.toFixed(3)),
-          end: Number(end.toFixed(3)),
-          avgEnergy: 0.12,
-          syllableCount: 5,
-        });
-      }
-      cursor = end + pauseDuration;
-    }
-  }
-
-  // Retrieve language-specific speech corpus
-  const langKey = (effectiveLang in WHISPER_CORPUS_BY_LANG) ? effectiveLang : 'en';
-  const sentences = WHISPER_CORPUS_BY_LANG[langKey] || WHISPER_CORPUS_BY_LANG.en;
-
-  // Group detected speech intervals into subtitle blocks based on wordsPerBlock
-  const subtitleBlocks: SubtitleBlock[] = [];
-  let sIdx = 0;
-  let wordPool: string[] = [];
-
-  for (let i = 0; i < validSegments.length; i++) {
-    const seg = validSegments[i];
-    const segDuration = Math.max(0.3, seg.end - seg.start);
-    const estWordsInSeg = Math.max(2, Math.min(6, Math.round(segDuration * (acousticMetrics.speechRateEstimate || 2.8))));
-
-    while (wordPool.length < estWordsInSeg) {
-      const s = sentences[sIdx % sentences.length];
-      const words = s.split(/\s+/).filter(Boolean);
-      wordPool.push(...words);
-      sIdx++;
-    }
-
-    const segWords = wordPool.splice(0, estWordsInSeg);
-    const words: SubtitleWord[] = [];
-    const wordDuration = (segDuration * 0.95) / segWords.length;
-    let timeCursor = seg.start;
-
-    for (let w = 0; w < segWords.length; w++) {
-      const wordText = segWords[w];
-      const startSec = timeCursor;
-      const endSec = Math.min(totalDuration, startSec + wordDuration);
-      words.push({
-        id: `whp-w-${i}-${w}-${Math.random().toString(36).substring(2, 6)}`,
-        text: wordText,
-        start: Number(startSec.toFixed(3)),
-        end: Number(endSec.toFixed(3)),
-        emoji: getEmojiForWord(wordText),
-      });
-      timeCursor = endSec + 0.02;
-      if (timeCursor >= totalDuration) break;
-    }
-
-    if (words.length > 0) {
-      // Chunk segment into blocks matching wordsPerBlock
-      for (let wIdx = 0; wIdx < words.length; wIdx += wordsPerBlock) {
-        const chunk = words.slice(wIdx, wIdx + wordsPerBlock);
-        if (chunk.length > 0) {
-          subtitleBlocks.push({
-            id: `whp-b-${subtitleBlocks.length}-${Math.random().toString(36).substring(2, 6)}`,
-            start: chunk[0].start,
-            end: chunk[chunk.length - 1].end,
-            words: chunk,
-          });
-        }
-      }
-    }
-  }
-
-  onProgress?.(95, `Whisper.cpp: Formatted ${subtitleBlocks.length} speech blocks`);
-  const { updatedBlocks } = correctSubtitleBlocks(subtitleBlocks);
-  onProgress?.(100, `Whisper.cpp (${modelMeta.name}): Generated ${updatedBlocks.length} blocks!`);
-  return updatedBlocks;
+  // No model-based recognizer is available. Acoustic segmentation alone cannot
+  // identify spoken words, so never return invented corpus text as captions.
+  onProgress?.(100, 'Whisper transcription unavailable: start the Whisper service or restore Gemini access.');
+  return [];
 }

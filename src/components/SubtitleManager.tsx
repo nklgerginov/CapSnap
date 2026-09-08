@@ -576,9 +576,7 @@ export const SubtitleManager: React.FC<SubtitleManagerProps> = ({
     setDictationError(null);
 
     if (!SpeechRecognition) {
-      const simulatedSample = 'Welcome to AutoCap Studio! Create viral video captions with animated highlights.';
-      setTranscriptInput(prev => (prev ? `${prev} ${simulatedSample}` : simulatedSample));
-      setDictationError('Dictation sample added to transcript!');
+      setDictationError('Browser dictation is not supported in this browser.');
       setTimeout(() => setDictationError(null), 3500);
       return;
     }
