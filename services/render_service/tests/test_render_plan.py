@@ -1,3 +1,5 @@
+import pytest
+
 from services.render_service.render_plan import build_ass, build_ffmpeg_command
 
 
@@ -40,3 +42,31 @@ def test_build_ass_preserves_css_alpha_colors():
     })
 
     assert "Style: NovaCap,Arial,54,&H80332211" in result
+
+
+def test_build_ass_supports_karaoke_and_escapes_ass_control_characters():
+    result = build_ass({
+        "style": {"animation_type": "karaoke"},
+        "blocks": [{
+            "words": [
+                {"text": "curly {word}", "start": 1.0, "end": 1.25},
+                {"text": "next", "start": 1.25, "end": 1.75},
+            ],
+        }],
+    })
+
+    assert r"\k25" in result
+    assert r"curly \{word\}" in result
+    assert "0:00:01.00,0:00:01.75" in result
+
+
+def test_build_ass_rejects_overlapping_word_timings():
+    with pytest.raises(ValueError, match="must not overlap"):
+        build_ass({
+            "blocks": [{
+                "words": [
+                    {"text": "one", "start": 0.0, "end": 0.5},
+                    {"text": "two", "start": 0.4, "end": 0.8},
+                ],
+            }],
+        })
