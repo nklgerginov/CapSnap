@@ -1,340 +1,242 @@
-# CapSnap (NovaCap Studio) - Complete Documentation
-
-## Table of Contents
-
-1. [Overview](#overview)
-2. [Project Structure](#project-structure)
-3. [Technical Architecture](#technical-architecture)
-4. [Core Features](#core-features)
-5. [Component Architecture](#component-architecture)
-6. [Hooks System](#hooks-system)
-7. [Utility Functions](#utility-functions)
-8. [API Endpoints](#api-endpoints)
-9. [Data Types](#data-types)
-10. [Setup & Installation](#setup--installation)
-11. [Configuration](#configuration)
-12. [Usage Guide](#usage-guide)
-13. [AI Transcription System](#ai-transcription-system)
-14. [Video Processing Pipeline](#video-processing-pipeline)
-15. [Performance Considerations](#performance-considerations)
-16. [Security Considerations](#security-considerations)
-17. [Troubleshooting](#troubleshooting)
-18. [Contributing](#contributing)
-19. [License](#license)
-
----
-
-## Overview
-
-CapSnap (NovaCap Studio) is a comprehensive web-based video editing application specializing in AI-powered subtitle generation and styling for social media content.
-
-### Key Value Propositions
-- AI-Powered Transcription using Google Gemini AI
-- Kinetic Subtitles with animations and highlighting
-- Multi-Platform Support for TikTok, Instagram, YouTube
-- Real-time Preview with video playback
-- Advanced Styling with custom fonts and colors
-- Audio Waveform Analysis for precise timing
-- Project Management with auto-save
-- Offline Capabilities as fallback
-
-### Target Users
-- Social media content creators
-- Video editors and producers  
-- Marketing teams
-- Educators and trainers
-- Podcasters
-
----
-
-## Project Structure
-
-CapSnap has a well-organized structure:
-- src/ - Main application source
-  - App.tsx - Main component
-  - components/ - React components (12 files)
-  - hooks/ - Custom hooks (5 files)
-  - utils/ - Utility functions (16 files)
-  - types.ts - TypeScript definitions
-- server.ts - Express server
-- Configuration files
-
----
-
-## Technical Architecture
-
-### Frontend
-- React 19, TypeScript
-- Vite 6, Tailwind CSS v4
-- Lucide React icons
-- Motion animations
-
-### Backend
-- Express.js server
-- Google GenAI SDK
-- Web Audio API
-- Canvas API
-
-### Architecture Pattern
-- Component-based with smart/dumb component separation
-- Custom hooks for reusable logic
-- Utility layer for pure functions
-- Server layer for API endpoints
-
----
-
-## Core Features
-
-### Video Processing
-- Upload MP4, WebM, MOV files
-- Extract audio track
-- Generate waveform visualization
-- Automatic duration detection
-
-### AI Transcription
-- Google Gemini AI integration
-- Multi-language support
-- Speaker identification
-- Sentiment analysis
-- Mood detection
-- Word-level timestamps
-- Emoji suggestions
-
-### Styling
-- Google Fonts integration
-- Custom colors and animations
-- Smart highlighting
-- 20 plus animation effects
-
-### Editing
-- Timeline-based editing
-- Drag-and-drop
-- Undo/redo
-- Word-level adjustments
-
-### Export
-- MP4 with burned-in subtitles
-- GIF export
-- SRT/WebVTT export
-- Multiple quality settings
-
----
-
-## Component Architecture
-
-### Main Components
-- App.tsx - State management
-- VideoPlayerCanvas.tsx - Video rendering
-- StylePanel.tsx - Styling controls
-- TimelineEditor.tsx - Timeline editing
-- SubtitleManager.tsx - Subtitle management
-
----
-
-## Hooks System
-
-- useSubtitleHistory - Undo/redo
-- useAutoSaveSubtitles - Auto-save
-- useProStatus - Subscription management
-- useAiUsage - AI usage tracking
-- useAudioNormalizer - Audio normalization
-
----
-
-## Utility Functions
-
-### Audio Processing
-- decodeAudioFromFile
-- extractWaveformFromAudioBuffer
-- alignWordsWithAudioEnergy
-- refineSubtitleSyncWithAudioEnergy
-
-### AI & Transcription
-- transcribeVideoAudioWithAI
-- transcribeAudioOffline
-- generateSubtitleBlocksFromTranscript
-
-### Styling & Rendering
-- applySmartAutoCaptionHighlights
-- canvas rendering utilities
-- Google Fonts integration
-
-### Storage
-- saveProject, getAllProjects
-- projectStorage with IndexedDB
-- Auto-save to localStorage
-
----
-
-## API Endpoints
-
-### GET /api/health
-Returns { status: ok }
-
-### POST /api/transcribe
-AI-powered transcription
-- Request: audioBase64, mimeType, wordsPerBlock, language
-- Response: Array of subtitle blocks
-- Uses: gemini-flash-latest, gemini-2.5-flash, gemini-3.7-flash
-
----
-
-## Data Types
-
-- AspectRatio: 9:16, 1:1, 16:9, 4:5
-- PlatformPreset: tiktok, youtube_shorts, instagram_reels, facebook_reels
-- AnimationType: 20 plus options
-- SubtitleWord: id, text, start, end, colorOverride, emoji, isEmphasized, sentiment
-- SubtitleBlock: id, start, end, words, mood, suggestedEmoji
-- SubtitleStyle: font, color, animation settings
-- VideoFilter: brightness, contrast, saturation, etc.
-- Project: Complete project state
-
----
-
-## Setup & Installation
-
-### Prerequisites
-- Node.js 18 plus
-- npm 9 plus or yarn 1.22 plus
-- Modern browser
-- Google Gemini API Key
-
-### Installation
-1. git clone https://github.com/nklgerginov/CapSnap.git
-2. cd CapSnap
-3. npm install
-4. cp .env.example .env
-5. Add GEMINI_API_KEY to .env
-6. npm run dev
-7. Open http://localhost:3000
-
----
-
-## Configuration
-
-### Environment Variables
-- GEMINI_API_KEY (required)
-- NODE_ENV (default: development)
-- PORT (default: 3000)
-
----
-
-## Usage Guide
-
-### Quick Start
-1. Upload video (MP4, WebM, MOV)
-2. AI auto-transcribes
-3. Edit in timeline
-4. Style with presets
-5. Add effects
-6. Export as MP4/GIF
-
-### Keyboard Shortcuts
-- Ctrl+S: Save
-- Ctrl+Z: Undo
-- Ctrl+Y: Redo
-- Space: Play/Pause
-- Arrows: Seek/Volume
-
-### Platform Presets
-- TikTok: 9:16, 15-60s
-- Instagram: 9:16, 15-90s
-- YouTube Shorts: 9:16, 15-60s
-- Facebook: 9:16, 15-90s
-
----
-
-## AI Transcription System
-
-Uses Google Gemini AI with:
-- Multi-language support
-- Word-level timestamps
-- Sentiment analysis
-- Mood detection
-- Emoji suggestions
-- Automatic retry on errors
-- Fallback to offline transcription
-
----
-
-## Video Processing Pipeline
-
-1. Upload: Video file to video element
-2. Audio Extraction: Video to audio buffer to waveform
-3. Transcription: Audio to AI to subtitle blocks
-4. Alignment: Blocks plus audio to aligned blocks
-5. Rendering: Video plus subtitles to canvas
-6. Export: Canvas frames to video file
-
----
-
-## Performance Considerations
-
-- Lazy loading components
-- Memoization with React.memo
-- Debounced auto-save
-- Web Workers for heavy processing
-- Canvas optimization
-
----
-
-## Security Considerations
-
-- API key protection
-- Input validation
-- CORS configuration
-- Data privacy (IndexedDB, localStorage)
-- HTTPS recommended
-
----
-
-## Troubleshooting
-
-### Common Issues
-- AI not working: Check GEMINI_API_KEY
-- Video not loading: Check format/size
-- Audio not playing: Check permissions
-- Export failing: Check disk space
-- Performance: Close tabs, reduce resolution
-
-### Debug Mode
-Set DEBUG=true in .env
-
-### Error Codes
-- 400: Bad Request
-- 401: Unauthorized
-- 429: Rate Limited
-- 500: Server Error
-- 503: Service Unavailable
-
----
-
-## Contributing
-
-1. Fork repository
-2. Create feature branch
-3. Make changes
-4. Test thoroughly
-5. Commit changes
-6. Push to branch
-7. Create Pull Request
-
-### Guidelines
-- Use TypeScript
-- Follow React best practices
-- Keep components small
-- Use hooks
-- Add JSDoc comments
-- Test on multiple browsers
-
----
-
-## License
-
-Proprietary Software - All rights reserved
-
----
-
-Last updated: August 22, 2026
-Version: 1.0.0
+# NovaCap Studio: Architecture and Audit
+
+**Repository:** `nklgerginov/CapSnap`
+**Audited:** September 2026
+**Scope:** Existing application compared with the NovaCap product vision
+
+## Executive summary
+
+NovaCap is currently a browser-first caption editor, not yet a distributed
+video SaaS platform. The existing product has a useful editing foundation:
+Gemini transcription, an offline transcription path, word-level subtitle data,
+rich canvas effects, timeline manipulation, local project persistence, and
+browser export. The main architectural gap is that heavy processing is still
+client-side and the transcription API uses Express/Gemini rather than the
+planned Python/FastAPI and Whisper v3/AssemblyAI pipeline.
+
+The safest evolution is incremental: preserve the responsive local editor,
+define a stable subtitle/style contract, then introduce worker-backed
+transcription and rendering behind the existing adapters.
+
+## Audited capabilities
+
+| Area | Current implementation | Status |
+| --- | --- | --- |
+| Editor UI | React 19, TypeScript, Vite, Tailwind, Motion/Lucide UI | Implemented |
+| Cloud transcription | Express `POST /api/transcribe` calling Gemini multimodal models | Implemented |
+| Offline transcription | Browser audio resampling, acoustic/VAD analysis, Whisper.cpp-style adapter and fallback | Implemented, validate accuracy before production claims |
+| Word timing | `SubtitleWord` with `start`, `end`, emphasis, sentiment, color, and emoji | Implemented |
+| Style system | `SubtitleStyle`, `PresetTheme`, platform presets, Google Fonts | Implemented |
+| Vibe effects | Canvas renderer with pop, karaoke, glow, shake, glitch, and extensive effect presets | Implemented |
+| Semantic enrichment | Gemini sentiment/mood fields plus local keyword highlighting and emoji map | Implemented |
+| Timeline editing | Block/word editing, drag interactions, undo/redo | Implemented |
+| Reframing | Crop keyframes and pixel-based subject focal-point detection | Partial; not MediaPipe face tracking |
+| Export | Canvas, WebCodecs, worker, GIF, SRT/VTT, and audio export paths | Implemented in-browser |
+| Persistence | IndexedDB with local-storage fallback | Implemented |
+| Server platform | Express + Vite middleware | Implemented |
+| Python/FastAPI workers | Whisper and render services under `services/` | Partial; production deployment and queueing planned |
+| FFmpeg/Remotion rendering | `services/render_service` validates requests, generates ASS/FFmpeg plans, and runs async jobs | Partial; durable queue/progress planned |
+| S3/CloudFront delivery | None in the repository | Planned |
+| BullMQ/Celery jobs | None in the repository | Planned |
+
+## System architecture
+
+```text
+Browser
+  ├─ React editor state
+  ├─ VideoPlayerCanvas + renderCore
+  ├─ TimelineEditor + SubtitleManager
+  ├─ Web Audio analysis and normalization
+  ├─ IndexedDB project/video storage
+  └─ WebCodecs / worker export
+          │
+          └── Express server
+                └── Gemini multimodal transcription (/api/transcribe)
+```
+
+### Important boundaries
+
+- `src/types.ts` is the shared domain contract for projects, subtitle words,
+  styles, transforms, audio, and export settings.
+- `src/utils/aiTranscriber.ts` owns the Gemini client adapter from the UI.
+- `src/utils/whisperEngine.ts` owns local audio preparation and offline
+  transcription behavior.
+- `src/utils/renderCore.ts` is the rendering engine; UI components should not
+  contain rendering algorithms.
+- `src/utils/projectStorage.ts` is the persistence boundary.
+- `server.ts` currently owns API validation, Gemini model fallback, JSON
+  normalization, and Vite/static serving.
+
+## Core data contracts
+
+### Subtitle word
+
+```ts
+interface SubtitleWord {
+  id: string;
+  text: string;
+  start: number;
+  end: number;
+  colorOverride?: string;
+  emoji?: string;
+  isEmphasized?: boolean;
+  sentiment?: "positive" | "negative" | "excited" |
+    "dramatic" | "neutral" | "curious";
+}
+```
+
+### Subtitle block
+
+Blocks group words for layout and can carry a mood, suggested emoji, and
+speaker metadata. This is already sufficient for pop-in highlighting, keyword
+color changes, karaoke fills, and later server-side rendering.
+
+### Style theme
+
+`SubtitleStyle` currently covers font family/size, active and inactive colors,
+background pills, stroke/shadow/glow, animation, line limits, text transform,
+position, emoji behavior, speaker badges, particle effects, and animation
+speed. `PresetTheme` adds a stable id, platform, and human-readable
+description.
+
+The Phase 1 schema should keep these existing names and add explicit
+capabilities only when required by a renderer. Do not create a second,
+incompatible style format.
+
+## Current request flow
+
+1. The user uploads a video and the browser creates a local object URL.
+2. Audio is decoded with Web Audio API and analyzed for waveform and energy.
+3. Gemini receives base64 WAV audio through `/api/transcribe`, or the local
+   path prepares 16 kHz mono audio for offline processing.
+4. Returned blocks are normalized with stable IDs and optional semantic fields.
+5. Audio-energy alignment and smart highlighting refine the subtitle blocks.
+6. Canvas preview renders the active words and effects at playback time.
+7. WebCodecs/workers export the result when browser support is available;
+   SRT/VTT and audio exports remain separate paths.
+
+## Phase 1 roadmap
+
+The local Phase 1 implementation is complete. The remaining rows below are
+production-hardening or infrastructure items and are tracked separately from
+the working local pipeline.
+
+### Step 1: Transcription pipeline
+
+Create a Python/FastAPI service with a versioned endpoint such as
+`POST /v1/transcriptions`. It should:
+
+- accept a presigned media URL or multipart audio upload;
+- use Whisper v3 or AssemblyAI for word-level timestamps;
+- return the existing block/word contract plus `confidence`;
+- preserve silence boundaries and reject invalid or overlapping timestamps;
+- expose job status for long-running media;
+- keep Gemini as a semantic enrichment step, not the timing source.
+
+The browser adapter should gain a provider interface so Gemini, local
+transcription, and the FastAPI service can be selected without changing the
+editor.
+
+### Step 2: Styling schema
+
+Formalize a versioned JSON schema around the existing `SubtitleStyle`:
+
+```json
+{
+  "schema_version": 1,
+  "font_family": "Plus Jakarta Sans",
+  "font_size": 72,
+  "primary_color": "#FFFFFF",
+  "highlight_color": "#FFE600",
+  "animation_type": "pop",
+  "emoji_enabled": true
+}
+```
+
+Add named presets for Gaming, Podcasts, Ads, and Lyrics. Validate imports
+server-side and in the editor; unknown fields should be ignored for forward
+compatibility.
+
+### Step 3: Rendering pipeline
+
+The first render service now validates normalized subtitle JSON, converts it
+into ASS captions, and returns an argument-safe FFmpeg command through
+`POST /v1/render/plan`. It supports word timing plus pop-in and karaoke tags
+while keeping the Canvas renderer as the instant-preview path. The remaining
+worker should execute this plan and add:
+
+- split long jobs into bounded chunks where codec/keyframe constraints allow;
+- process chunks through a queue (Celery initially, or BullMQ if Node owns
+  orchestration);
+- upload completed outputs to S3 and serve through CloudFront;
+- return progress, cancellation, and signed-download metadata.
+
+Do not expose cloud credentials to the browser.
+
+## Vibe engine requirements
+
+| Preset | Required behavior |
+| --- | --- |
+| Gaming | Jitter/shake, neon glow, impact scaling tied to audio energy, optional facecam/gameplay layout |
+| Podcasts | High legibility, pop-in, safe lower-third placement, keyword colors such as money/green |
+| Ads | High contrast, CTA overlay support, bottom-third safe zone, brand font and color lock |
+| Lyrics | Karaoke fill, smooth transitions, beat/rhythm metadata, pulsing emphasis |
+
+Current presets and renderer cover much of the visual behavior. CTA overlays,
+beat-aware lyric timing, and reusable theme validation remain roadmap work.
+
+## Gaps and risks
+
+- Gemini is asked for precise timestamps, but a dedicated speech-to-text
+  engine should own timing for production reliability.
+- The current API accepts large base64 JSON payloads; production should use
+  object storage or streaming uploads with size/type limits.
+- Local project storage is device-local; collaboration, recovery, and cloud
+  delivery require an authenticated backend.
+- Subject detection is heuristic pixel analysis, not robust face/pose tracking.
+- Browser export support varies by codec and device; server rendering is
+  required for deterministic delivery.
+- API keys must remain server-side and request authentication/rate limits are
+  required before public deployment.
+
+## Configuration and operations
+
+Required environment variable:
+
+- `GEMINI_API_KEY`: server-side Gemini API access.
+- `VITE_WHISPER_SERVICE_URL`: optional URL for the dedicated FastAPI Whisper
+  service. It is used only after Gemini fails and before local transcription.
+
+Development commands:
+
+```bash
+npm install
+npm run dev
+npm run lint
+npm run build
+npm start
+```
+
+The health check is `GET /api/health`. The current transcription endpoint is
+`POST /api/transcribe` with `audioBase64`, optional `mimeType`,
+`wordsPerBlock`, and `language`.
+
+## Security checklist
+
+- Keep Gemini and future storage credentials on the server.
+- Validate MIME type, decoded payload size, duration, and transcription
+  parameters before processing.
+- Add authentication, per-user quotas, and rate limiting to transcription and
+  export jobs.
+- Use signed, short-lived object URLs for uploaded and rendered media.
+- Treat AI output as untrusted JSON and validate timestamps, colors, text
+  length, and enum values before rendering.
+- Avoid logging raw audio, API keys, or full transcript payloads.
+
+## Definition of done for the next milestone
+
+Phase 1 is complete when a versioned transcription provider returns validated
+word-level timestamps and confidence, the four style families serialize
+through one schema, and a repeatable render command can burn those captions
+into a video outside the browser. The existing editor must continue to preview
+and edit the same subtitle/style contracts during that migration.

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://novacap.app/schemas/style-theme.v1.json",
+  "title": "NovaCap Style Theme",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "font_family",
+    "font_size",
+    "primary_color",
+    "highlight_color",
+    "animation_type",
+    "emoji_enabled"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "font_family": {
+      "type": "string",
+      "minLength": 1
+    },
+    "font_size": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "primary_color": {
+      "type": "string",
+      "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    },
+    "highlight_color": {
+      "type": "string",
+      "pattern": "^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$"
+    },
+    "animation_type": {
+      "type": "string"
+    },
+    "emoji_enabled": {
+      "type": "boolean"
+    }
+  }
+}
