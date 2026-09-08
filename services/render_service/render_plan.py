@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shlex
 from pathlib import Path
 from typing import Any
@@ -13,12 +14,26 @@ def validate_subtitle_data(subtitle_data: dict[str, Any]) -> None:
     """Reject malformed timing before it reaches ASS or FFmpeg."""
     if not isinstance(subtitle_data, dict):
         raise ValueError("subtitle data must be an object")
-    for block in subtitle_data.get("blocks", []):
+    blocks = subtitle_data.get("blocks", [])
+    if not isinstance(blocks, list):
+        raise ValueError("subtitle blocks must be an array")
+    for block in blocks:
+        if not isinstance(block, dict):
+            raise ValueError("subtitle blocks must be objects")
         words = block.get("words", [])
+        if not isinstance(words, list):
+            raise ValueError("subtitle words must be an array")
         previous_end = 0.0
         for word in words:
-            start = float(word["start"])
-            end = float(word["end"])
+            if not isinstance(word, dict):
+                raise ValueError("subtitle words must be objects")
+            try:
+                start = float(word["start"])
+                end = float(word["end"])
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError("subtitle words require numeric start and end") from error
+            if not math.isfinite(start) or not math.isfinite(end):
+                raise ValueError("word timings must be finite")
             if start < 0 or end <= start:
                 raise ValueError("word timings must be positive and increasing")
             if words and start < previous_end:
