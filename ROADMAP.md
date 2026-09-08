@@ -66,7 +66,7 @@ music/noise conditions remains a release gate.
 | Render-plan FastAPI endpoint | Done | `POST /v1/render/plan` validates input and returns ASS plus command |
 | FFmpeg execution worker | Done | FastAPI jobs execute FFmpeg asynchronously and report completion/failure; real smoke render verified |
 | Progress and cancellation | Done | Jobs expose state/cancellation and consume FFmpeg machine-readable progress when duration is supplied |
-| Render regression fixtures | Planned | Golden outputs cover pop, karaoke, emoji, multiline, and silence gaps |
+| Render regression fixtures | In progress | Automated coverage now locks pop, karaoke, escaping, alpha colors, overlap rejection, and progress flags; golden media fixtures remain |
 | Parallel chunk rendering | Planned | Long videos render in bounded chunks and preserve audio/timing at joins |
 
 ### Phase 1 exit note
