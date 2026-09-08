@@ -28,5 +28,6 @@ Notes:
   `whisper-large-v3`, or `whisper-large-v3-turbo`.
 - If faster-whisper is not installed, the service returns an empty result and
   the editor reports that no transcription provider is available.
+- Audio payloads are limited to 750 MB end-to-end.
 - The editor proxies `/api/transcribe/whisper` to `http://127.0.0.1:8080` by
   default, so no frontend Whisper URL is required for local development.
